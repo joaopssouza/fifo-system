@@ -1,12 +1,13 @@
-version: '3.8'
+# A linha &#39;version&#39; foi removida, conforme a recomendação da documentação oficial do Docker 
 
 services:
   db:
     image: postgres:15-alpine # Usar uma versão específica como '15-alpine' é melhor que 'latest'
     container_name: fifo_db_container
     restart: always
+    # As variáveis são lidas do .env e injetadas no ambiente do contentor
     env_file:
-      - ./backend/.env
+    - .env
     ports:
       - "5432:5432"
     volumes:
@@ -26,7 +27,7 @@ services:
       - "8080:8080"
             # O Docker Compose irá procurar um ficheiro .env na pasta do backend 
     env_file:
-      - ./backend/.env
+      - .env
     depends_on:
       db:
         condition: service_healthy
