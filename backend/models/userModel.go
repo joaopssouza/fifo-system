@@ -5,8 +5,10 @@ import "gorm.io/gorm"
 
 type User struct {
 	gorm.Model
+	FullName     string `gorm:"not null"`
 	Username     string `gorm:"unique;not null"`
 	PasswordHash string `gorm:"not null"`
-	Role         string `gorm:"not null;default:'fifo'"`  // Roles: fifo, adminv
-	Sector       string `gorm:"not null;default:'Geral'"` // Novo campo: Setor
+	Sector       string `gorm:"not null;default:'Geral'"`
+	RoleID       uint   // Chave estrangeira
+	Role         Role   // Relacionamento
 }

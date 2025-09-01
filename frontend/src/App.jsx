@@ -2,31 +2,43 @@
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { WebSocketProvider } from './context/WebSocketContext'; // <-- PASSO 1: IMPORTAR
 
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import LogsPage from './pages/LogsPage';
+import AdminPage from './pages/AdminPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
     return (
+        // O AuthProvider continua a ser o provedor principal
         <AuthProvider>
-            <Routes>
-                <Route path="/login" element={<LoginPage />} />
+            {/* PASSO 2: O WebSocketProvider envolve as rotas da aplicação */}
+            {/* Agora, qualquer rota dentro dele pode aceder ao contexto do WebSocket */}
+            <WebSocketProvider>
+                <Routes>
+                    <Route path="/login" element={<LoginPage />} />
 
-                {/* Rotas Protegidas */}
-                <Route element={<ProtectedRoute />}>
-                    <Route path="/" element={<DashboardPage />} />
-                </Route>
+                    {/* Rota principal, apenas requer autenticação */}
+                    <Route element={<ProtectedRoute />}>
+                        <Route path="/" element={<DashboardPage />} />
+                    </Route>
 
-                {/* Rotas de Admin */}
-                <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
-                    <Route path="/logs" element={<LogsPage />} />
-                </Route>
+                    {/* Rota de Logs, requer a permissão 'VIEW_LOGS' */}
+                    <Route element={<ProtectedRoute requiredPermission="VIEW_LOGS" />}>
+                        <Route path="/logs" element={<LogsPage />} />
+                    </Route>
 
-            </Routes>
+                    {/* Rota de Gestão, requer a permissão 'VIEW_USERS' */}
+                    <Route element={<ProtectedRoute requiredPermission="VIEW_USERS" />}>
+                        <Route path="/management" element={<AdminPage />} />
+                    </Route>
+                </Routes>
+            </WebSocketProvider>
         </AuthProvider>
     );
 }
 
 export default App;
+

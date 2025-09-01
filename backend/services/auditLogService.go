@@ -8,18 +8,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// CreateAuditLog cria um registro de auditoria dentro de uma transação de banco de dados.
-// É crucial que ele receba o 'tx *gorm.DB' para garantir que a criação do log
-// faça parte da mesma operação atômica que a ação principal (entrada/saída de pacote).
-func CreateAuditLog(tx *gorm.DB, username string, action string, details string) error {
+// CreateAuditLog agora também regista o nome completo do utilizador.
+func CreateAuditLog(tx *gorm.DB, user models.User, action string, details string) error {
 	auditLog := models.AuditLog{
-		Username: username,
-		Action:   action,
-		Details:  details,
+		Username:     user.Username,
+		UserFullname: user.FullName, // <-- NOVO CAMPO
+		Action:       action,
+		Details:      details,
 	}
 
 	if err := tx.Create(&auditLog).Error; err != nil {
-		// Retorna um erro formatado para facilitar a depuração
 		return fmt.Errorf("failed to create audit log: %w", err)
 	}
 

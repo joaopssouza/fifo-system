@@ -4,7 +4,7 @@ package controllers
 import (
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
-	"fifo-system/backend/services" // <-- IMPORTA O NOVO PACOTE
+	"fifo-system/backend/services"
 	"fmt"
 	"net/http"
 	"time"
@@ -40,13 +40,12 @@ func PackageEntry(c *gin.Context) {
 			return err
 		}
 
-		// --- LÓGICA DE LOG SUBSTITUÍDA POR CHAMADA AO SERVIÇO ---
 		user, _ := c.Get("user")
-		logDetails := fmt.Sprintf("Package %s entered into buffer %s at rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
-		if err := services.CreateAuditLog(tx, user.(models.User).Username, "ENTRADA", logDetails); err != nil {
-			return err // Se o log falhar, toda a transação é desfeita (rollback)
+		logDetails := fmt.Sprintf("A Gaiola %s entrou no buffer %s na rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
+		// Passa o objeto user completo
+		if err := services.CreateAuditLog(tx, user.(models.User), "ENTRADA", logDetails); err != nil {
+			return err
 		}
-		// --- FIM DA ALTERAÇÃO ---
 
 		return nil
 	})
@@ -78,13 +77,12 @@ func PackageExit(c *gin.Context) {
 			return fmt.Errorf("package not found")
 		}
 
-		// --- LÓGICA DE LOG SUBSTITUÍDA POR CHAMADA AO SERVIÇO ---
 		user, _ := c.Get("user")
 		logDetails := fmt.Sprintf("Package %s removed from buffer %s at rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
-		if err := services.CreateAuditLog(tx, user.(models.User).Username, "SAIDA", logDetails); err != nil {
+		// Passa o objeto user completo
+		if err := services.CreateAuditLog(tx, user.(models.User), "SAIDA", logDetails); err != nil {
 			return err
 		}
-		// --- FIM DA ALTERAÇÃO ---
 
 		if err := tx.Delete(&pkg).Error; err != nil {
 			return err
@@ -116,31 +114,28 @@ func GetBacklogCount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
+// GetAuditLogs agora também pode filtrar pelo nome completo
 func GetAuditLogs(c *gin.Context) {
-	// 1. Obter os parâmetros de filtro da URL (ex: /logs?username=admin)
 	username := c.Query("username")
 	action := c.Query("action")
-	startDate := c.Query("startDate") // Espera o formato 'YYYY-MM-DD'
-	endDate := c.Query("endDate")     // Espera o formato 'YYYY-MM-DD'
+	startDate := c.Query("startDate")
+	endDate := c.Query("endDate")
 
-	// 2. Iniciar a construção da consulta ao banco de dados
 	query := initializers.DB.Order("created_at desc")
 
-	// 3. Adicionar filtros à consulta dinamicamente
 	if username != "" {
-		// Usa ILIKE para uma busca de texto que não diferencia maiúsculas de minúsculas
-		query = query.Where("username ILIKE ?", "%"+username+"%")
+		// Procura tanto no nome de utilizador como no nome completo
+		searchPattern := "%" + username + "%"
+		query = query.Where("username ILIKE ? OR user_full_name ILIKE ?", searchPattern, searchPattern)
 	}
 	if action != "" {
 		query = query.Where("action = ?", action)
 	}
 	if startDate != "" && endDate != "" {
-		// Adiciona um '23:59:59' ao final da data de término para incluir todo o dia
 		endDateWithTime := endDate + " 23:59:59"
 		query = query.Where("created_at BETWEEN ? AND ?", startDate, endDateWithTime)
 	}
 
-	// 4. Executar a consulta final
 	var logs []models.AuditLog
 	if err := query.Find(&logs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve logs"})

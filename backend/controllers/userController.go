@@ -5,7 +5,10 @@ import (
 	"fifo-system/backend/config"
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,32 +20,43 @@ import (
 func CreateUser(c *gin.Context) {
 	var body struct {
 		Username string `json:"username" binding:"required"`
+		FullName string `json:"fullName" binding:"required"`
 		Password string `json:"password" binding:"required"`
-		Role     string `json:"role" binding:"required"` // Role agora é obrigatória
+		Role     string `json:"role" binding:"required"`
+		Sector   string `json:"sector" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "É necessário fornecer nome de utilizador, senha e função."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Todos os campos são obrigatórios."})
 		return
 	}
 
-	// Hash the password
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), 10)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao processar a senha."})
 		return
 	}
 
-	// Set a default role if not provided
-	if body.Role == "" {
-		body.Role = "fifo"
+	var role models.Role
+	if err := initializers.DB.Where("name = ?", body.Role).First(&role).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "O papel especificado não existe."})
+		return
 	}
 
-	// Create the user
-	user := models.User{Username: body.Username, PasswordHash: string(hash), Role: body.Role}
+	user := models.User{
+		Username:     body.Username,
+		FullName:     body.FullName,
+		PasswordHash: string(hash),
+		Sector:       body.Sector,
+		RoleID:       role.ID,
+	}
 	result := initializers.DB.Create(&user)
 
 	if result.Error != nil {
+		if strings.Contains(result.Error.Error(), "duplicate key value violates unique constraint") {
+			c.JSON(http.StatusConflict, gin.H{"error": "O nome de utilizador já existe."})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao criar o utilizador."})
 		return
 	}
@@ -50,14 +64,20 @@ func CreateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Utilizador criado com sucesso."})
 }
 
-// NOVA FUNÇÃO: Listar todos os utilizadores (sem as senhas)
+// GetUsers lista todos os utilizadores, incluindo a informação do seu papel.
 func GetUsers(c *gin.Context) {
 	var users []models.User
-	// Omit("password_hash") garante que nunca enviamos as senhas para o frontend
-	initializers.DB.Omit("password_hash").Find(&users)
+	// --- CORREÇÃO CRÍTICA ---
+	// Usamos Preload("Role") para carregar os dados do papel associado a cada utilizador.
+	// Omit("password_hash") garante que nunca enviamos as senhas para o frontend.
+	if err := initializers.DB.Preload("Role").Omit("password_hash").Find(&users).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao buscar utilizadores."})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"data": users})
 }
 
+// Login gera um token JWT para um utilizador autenticado.
 func Login(c *gin.Context) {
 	var body struct {
 		Username string `json:"username" binding:"required"`
@@ -69,7 +89,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Look up requested user
 	var user models.User
 	initializers.DB.First(&user, "username = ?", body.Username)
 
@@ -78,35 +97,42 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Compare sent in pass with saved user pass hash
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password))
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Nome de utilizador ou senha inválidos"})
 		return
 	}
 
-	// Generate a jwt token
+	var userWithPermissions models.User
+	initializers.DB.Preload("Role.Permissions").First(&userWithPermissions, user.ID)
+
+	var permissions []string
+	for _, p := range userWithPermissions.Role.Permissions {
+		permissions = append(permissions, p.Name)
+	}
+
+	log.Printf("A gerar token para Utilizador: '%s', Nome Completo: '%s'", user.Username, user.FullName)
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":  user.ID,
-		"user": user.Username,
-		"role": user.Role,
-		"exp":  time.Now().Add(time.Hour * 24 * 30).Unix(), // Token expires in 30 days
+		"sub":         user.ID,
+		"user":        user.Username,
+		"fullName":    user.FullName, // <-- NOVO CAMPO
+		"role":        userWithPermissions.Role.Name,
+		"permissions": permissions,
+		"exp":         time.Now().Add(time.Hour * 24 * 30).Unix(),
 	})
 
-	// Sign and get the complete encoded token as a string using the secret
 	tokenString, err := token.SignedString([]byte(config.AppConfig.JWTSecret))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao criar o token"})
 		return
 	}
 
-	// Send it back
-	c.JSON(http.StatusOK, gin.H{
-		"token": tokenString,
-	})
+	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
+
+// ChangePassword permite que um utilizador autenticado altere a sua própria senha.
 func ChangePassword(c *gin.Context) {
-	// Obter o ID do utilizador a partir do token JWT (anexado pelo middleware)
 	userInterface, _ := c.Get("user")
 	currentUser := userInterface.(models.User)
 
@@ -120,22 +146,18 @@ func ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// 1. Verificar se a senha antiga está correta
 	err := bcrypt.CompareHashAndPassword([]byte(currentUser.PasswordHash), []byte(body.OldPassword))
 	if err != nil {
-		// Se as senhas não corresponderem, retorna um erro de não autorizado
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "A senha antiga está incorreta."})
 		return
 	}
 
-	// 2. Gerar o hash para a nova senha
 	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), 10)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao processar a nova senha."})
 		return
 	}
 
-	// 3. Atualizar a senha no banco de dados
 	result := initializers.DB.Model(&currentUser).Update("password_hash", string(newHash))
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao atualizar a senha."})
@@ -145,12 +167,57 @@ func ChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Senha alterada com sucesso."})
 }
 
-// AdminResetPassword permite que um admin redefina a senha de outro utilizador.
-func AdminResetPassword(c *gin.Context) {
-	adminUser, _ := c.Get("user")
-	currentAdmin := adminUser.(models.User)
+// GetRoles lista todos os papéis disponíveis no sistema.
+func GetRoles(c *gin.Context) {
+	var roles []models.Role
+	initializers.DB.Find(&roles)
+	c.JSON(http.StatusOK, gin.H{"data": roles})
+}
 
-	targetUserID := c.Param("id")
+// AdminUpdateUser permite que um administrador atualize o papel e setor de outro utilizador.
+func AdminUpdateUser(c *gin.Context) {
+	targetUserIDStr := c.Param("id")
+	targetUserID, err := strconv.ParseUint(targetUserIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de utilizador inválido."})
+		return
+	}
+
+	var targetUser models.User
+	if err := initializers.DB.First(&targetUser, uint(targetUserID)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Utilizador alvo não encontrado."})
+		return
+	}
+
+	var body struct {
+		FullName string `json:"fullName"`
+		RoleID uint   `json:"roleId"`
+		Sector string `json:"sector"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "É necessário fornecer o ID do papel e o setor."})
+		return
+	}
+
+	updates := models.User{FullName: body.FullName, RoleID: body.RoleID, Sector: body.Sector}
+	initializers.DB.Model(&targetUser).Updates(updates)
+	c.JSON(http.StatusOK, gin.H{"message": "Utilizador atualizado com sucesso."})
+}
+
+// AdminResetPassword permite que um administrador redefina a senha de outro utilizador.
+func AdminResetPassword(c *gin.Context) {
+	targetUserIDStr := c.Param("id")
+	targetUserID, err := strconv.ParseUint(targetUserIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de utilizador inválido."})
+		return
+	}
+
+	var targetUser models.User
+	if err := initializers.DB.First(&targetUser, uint(targetUserID)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Utilizador alvo não encontrado."})
+		return
+	}
 
 	var body struct {
 		NewPassword string `json:"newPassword" binding:"required"`
@@ -159,36 +226,7 @@ func AdminResetPassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "É necessário fornecer a nova senha."})
 		return
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "É necessário fornecer a nova senha."})
-		return
-	}
-
-	var targetUser models.User
-	if err := initializers.DB.First(&targetUser, targetUserID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Utilizador alvo não encontrado."})
-		return
-	}
-
-	// Regra de Segurança: Um admin não pode redefinir a sua própria senha através desta rota.
-	if targetUser.ID == currentAdmin.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Não pode redefinir a sua própria senha aqui. Use a funcionalidade 'Alterar Senha'."})
-		return
-	}
-	// Gerar o hash para a nova senha
-	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), 10)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao processar a nova senha."})
-		return
-	}
-
-	result := initializers.DB.Model(&targetUser).Update("password_hash", string(newHash))
-	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao atualizar a senha."})
-		return
-	}
-
-	// A chamada para CreateAuditLog foi REMOVIDA, conforme a sua instrução.
-
+	newHash, _ := bcrypt.GenerateFromPassword([]byte(body.NewPassword), 10)
+	initializers.DB.Model(&targetUser).Update("password_hash", string(newHash))
 	c.JSON(http.StatusOK, gin.H{"message": "Senha do utilizador redefinida com sucesso."})
 }

@@ -2,26 +2,28 @@ package websocket
 
 import (
 	"encoding/json"
+	"fifo-system/backend/models"
 	"log"
 	"net/http"
 	"sync"
-	"fifo-system/backend/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
+// Client representa um utilizador conectado via WebSocket.
 type Client struct {
 	Conn     *websocket.Conn
 	UserID   uint
+	FullName string
 	Username string
 	Role     string
 	Sector   string
 }
 
+// Hub mantém o conjunto de clientes ativos.
 type Hub struct {
 	clients    map[*Client]bool
-	broadcast  chan []byte
 	register   chan *Client
 	unregister chan *Client
 	mu         sync.Mutex
@@ -31,18 +33,20 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// Permite todas as origens por agora. Em produção, restrinja isto.
+		// Para desenvolvimento, permite todas as origens.
+		// Em produção, deve restringir isto ao seu domínio de frontend.
 		return true
 	},
 }
 
+// H é a instância global do nosso Hub.
 var H = Hub{
 	clients:    make(map[*Client]bool),
-	broadcast:  make(chan []byte),
 	register:   make(chan *Client),
 	unregister: make(chan *Client),
 }
 
+// Run inicia o processamento de eventos do Hub.
 func (h *Hub) Run() {
 	for {
 		select {
@@ -50,7 +54,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.clients[client] = true
 			h.mu.Unlock()
-			log.Printf("Client connected: %s", client.Username)
+			log.Printf("Cliente conectado: %s", client.Username)
 			h.broadcastOnlineUsers()
 
 		case client := <-h.unregister:
@@ -60,12 +64,13 @@ func (h *Hub) Run() {
 				client.Conn.Close()
 			}
 			h.mu.Unlock()
-			log.Printf("Client disconnected: %s", client.Username)
+			log.Printf("Cliente desconectado: %s", client.Username)
 			h.broadcastOnlineUsers()
 		}
 	}
 }
 
+// broadcastOnlineUsers envia a lista de utilizadores online para todos os admins e leaders conectados.
 func (h *Hub) broadcastOnlineUsers() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -73,6 +78,7 @@ func (h *Hub) broadcastOnlineUsers() {
 	var onlineUsers []map[string]interface{}
 	for client := range h.clients {
 		onlineUsers = append(onlineUsers, map[string]interface{}{
+			"fullName": client.FullName,
 			"id":       client.UserID,
 			"username": client.Username,
 			"role":     client.Role,
@@ -80,59 +86,47 @@ func (h *Hub) broadcastOnlineUsers() {
 		})
 	}
 
-	message, err := json.Marshal(map[string]interface{}{
+	message, _ := json.Marshal(map[string]interface{}{
 		"type": "online_users",
 		"data": onlineUsers,
 	})
 
-	if err != nil {
-		log.Printf("Error marshaling online users: %v", err)
-		return
-	}
-
 	for client := range h.clients {
-		// Envia a lista de utilizadores online apenas para os administradores
-		if client.Role == "admin" {
-			if err := client.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				log.Printf("Websocket write error: %s", err)
-			}
+		// --- LÓGICA ATUALIZADA ---
+		// Agora, tanto 'admin' quanto 'leader' recebem a lista.
+		if client.Role == "admin" || client.Role == "leader" {
+			client.Conn.WriteMessage(websocket.TextMessage, message)
 		}
 	}
 }
 
+// ServeWs lida com o upgrade de requisições HTTP para WebSocket.
 func ServeWs(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Println(err)
 		return
 	}
 
-	userInterface, exists := c.Get("user")
-	if !exists {
-		log.Println("User not found in context for WebSocket")
-		conn.Close()
-		return
-	}
-
+	userInterface, _ := c.Get("user")
 	currentUser := userInterface.(models.User)
 
 	client := &Client{
 		Conn:     conn,
 		UserID:   currentUser.ID,
+		FullName: currentUser.FullName,
 		Username: currentUser.Username,
-		Role:     currentUser.Role,
+		Role:     currentUser.Role.Name,
 		Sector:   currentUser.Sector,
 	}
 
 	H.register <- client
 
-	// Rotina para lidar com a desconexão do cliente
+	// Esta rotina escuta por mensagens para detetar quando o cliente se desconecta.
 	go func() {
 		defer func() {
 			H.unregister <- client
 		}()
 		for {
-			// Apenas lê mensagens para detetar a desconexão. Não fazemos nada com a mensagem.
 			if _, _, err := client.Conn.ReadMessage(); err != nil {
 				break
 			}
