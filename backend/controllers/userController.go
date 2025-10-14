@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -90,36 +91,39 @@ func Login(c *gin.Context) {
 	}
 
 	var user models.User
-	initializers.DB.First(&user, "username = ?", body.Username)
-
-	if user.ID == 0 {
+	// --- INÍCIO DA CORREÇÃO ---
+	// Carrega o utilizador e todas as suas associações (Role e Permissions) de uma só vez.
+	if err := initializers.DB.Preload("Role.Permissions").First(&user, "username = ?", body.Username).Error; err != nil {
+		// Se o utilizador não for encontrado, retornamos um erro genérico para segurança.
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Nome de utilizador ou senha inválidos"})
 		return
 	}
+	// --- FIM DA CORREÇÃO ---
 
+	// Compara a senha fornecida com o hash armazenado.
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password))
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Nome de utilizador ou senha inválidos"})
 		return
 	}
 
-	var userWithPermissions models.User
-	initializers.DB.Preload("Role.Permissions").First(&userWithPermissions, user.ID)
-
+	// Extrai os nomes das permissões para incluir no token.
 	var permissions []string
-	for _, p := range userWithPermissions.Role.Permissions {
+	for _, p := range user.Role.Permissions {
 		permissions = append(permissions, p.Name)
 	}
 
-	log.Printf("A gerar token para Utilizador: '%s', Nome Completo: '%s'", user.Username, user.FullName)
+	// Log de depuração para verificar as permissões.
+	log.Printf("A gerar token para Utilizador: '%s' com as permissões: %v", user.Username, permissions)
 
+	// Cria o token JWT com todos os dados corretos e consistentes.
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":         user.ID,
 		"user":        user.Username,
-		"fullName":    user.FullName, // <-- NOVO CAMPO
-		"role":        userWithPermissions.Role.Name,
+		"fullName":    user.FullName, // Agora o FullName está sempre presente.
+		"role":        user.Role.Name,
 		"permissions": permissions,
-		"exp":         time.Now().Add(time.Hour * 24 * 30).Unix(),
+		"exp":         time.Now().Add(config.AppConfig.JWTExpirationTime).Unix(),
 	})
 
 	tokenString, err := token.SignedString([]byte(config.AppConfig.JWTSecret))
@@ -174,50 +178,77 @@ func GetRoles(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": roles})
 }
 
-// AdminUpdateUser permite que um administrador atualize o papel e setor de outro utilizador.
-func AdminUpdateUser(c *gin.Context) {
-	targetUserIDStr := c.Param("id")
-	targetUserID, err := strconv.ParseUint(targetUserIDStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de utilizador inválido."})
-		return
+// validateAdminAction executa as verificações de hierarquia para ações de administração.
+func validateAdminAction(actingUser models.User, targetUserID uint) (*models.User, error) {
+	// Regra 1: Um utilizador não pode editar a si mesmo.
+	if actingUser.ID == targetUserID {
+		return nil, errors.New("não pode executar esta ação no seu próprio perfil")
 	}
 
 	var targetUser models.User
-	if err := initializers.DB.First(&targetUser, uint(targetUserID)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Utilizador alvo não encontrado."})
+	if err := initializers.DB.Preload("Role").First(&targetUser, targetUserID).Error; err != nil {
+		return nil, errors.New("utilizador alvo não encontrado")
+	}
+
+	// Regra 2: Ninguém pode editar um 'admin'.
+	if targetUser.Role.Name == "admin" {
+		return nil, errors.New("não é permitido modificar um administrador")
+	}
+
+	// Regra 3: Um 'leader' não pode editar outro 'leader'.
+	if actingUser.Role.Name == "leader" && targetUser.Role.Name == "leader" {
+		return nil, errors.New("líderes não podem editar outros líderes")
+	}
+
+	return &targetUser, nil
+}
+
+// AdminUpdateUser permite que um administrador atualize o papel e setor de outro utilizador.
+func AdminUpdateUser(c *gin.Context) {
+	actingUserInterface, _ := c.Get("user")
+	actingUser := actingUserInterface.(models.User)
+
+	targetUserIDStr := c.Param("id")
+	targetUserID, _ := strconv.ParseUint(targetUserIDStr, 10, 32)
+
+    // --- LÓGICA DE VALIDAÇÃO REATORIZADA ---
+	targetUser, err := validateAdminAction(actingUser, uint(targetUserID))
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
+    // --- FIM DA REATORIZAÇÃO ---
 
 	var body struct {
 		FullName string `json:"fullName"`
-		RoleID uint   `json:"roleId"`
-		Sector string `json:"sector"`
+		RoleID   uint   `json:"roleId"`
+		Sector   string `json:"sector"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "É necessário fornecer o ID do papel e o setor."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos."})
 		return
 	}
 
 	updates := models.User{FullName: body.FullName, RoleID: body.RoleID, Sector: body.Sector}
-	initializers.DB.Model(&targetUser).Updates(updates)
+	initializers.DB.Model(targetUser).Updates(updates)
 	c.JSON(http.StatusOK, gin.H{"message": "Utilizador atualizado com sucesso."})
 }
 
-// AdminResetPassword permite que um administrador redefina a senha de outro utilizador.
+// AdminResetPassword (aplicar a mesma lógica de validação)
 func AdminResetPassword(c *gin.Context) {
-	targetUserIDStr := c.Param("id")
-	targetUserID, err := strconv.ParseUint(targetUserIDStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de utilizador inválido."})
-		return
-	}
+	actingUserInterface, _ := c.Get("user")
+	actingUser := actingUserInterface.(models.User)
 
-	var targetUser models.User
-	if err := initializers.DB.First(&targetUser, uint(targetUserID)).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Utilizador alvo não encontrado."})
+	targetUserIDStr := c.Param("id")
+	targetUserID, _ := strconv.ParseUint(targetUserIDStr, 10, 32)
+
+    // --- LÓGICA DE VALIDAÇÃO REATORIZADA ---
+	targetUser, err := validateAdminAction(actingUser, uint(targetUserID))
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
+    // --- FIM DA REATORIZAÇÃO ---
 
 	var body struct {
 		NewPassword string `json:"newPassword" binding:"required"`
@@ -227,6 +258,6 @@ func AdminResetPassword(c *gin.Context) {
 		return
 	}
 	newHash, _ := bcrypt.GenerateFromPassword([]byte(body.NewPassword), 10)
-	initializers.DB.Model(&targetUser).Update("password_hash", string(newHash))
+	initializers.DB.Model(targetUser).Update("password_hash", string(newHash))
 	c.JSON(http.StatusOK, gin.H{"message": "Senha do utilizador redefinida com sucesso."})
 }

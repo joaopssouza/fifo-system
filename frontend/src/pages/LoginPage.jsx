@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
-// Estilos embutidos para esta página específica
 const styles = {
     loginContainer: {
         display: 'flex',
@@ -49,7 +48,7 @@ function LoginPage() {
         try {
             const response = await api.post('/login', { username, password });
             auth.login(response.data.token);
-            navigate('/'); // Redireciona para o Dashboard após o login
+            navigate('/');
         } catch (err) {
             setError('Usuário ou senha inválidos.');
             console.error(err);

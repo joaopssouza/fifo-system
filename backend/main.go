@@ -7,8 +7,11 @@ import (
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/middleware"
 	"fifo-system/backend/models"
+	"fifo-system/backend/services" // Importe o novo pacote
 	"fifo-system/backend/websocket"
 	"log"
+	"net/http" // Importe para usar http.StatusOK
+	"time"     // Importe para usar time.Now()
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -23,7 +26,6 @@ func init() {
 
 func main() {
 	log.Println("Iniciando a migração da base de dados...")
-	// Adiciona a tabela de junção explícita à migração
 	err := initializers.DB.AutoMigrate(&models.User{}, &models.Role{}, &models.Permission{}, &models.Package{}, &models.AuditLog{})
 	if err != nil {
 		log.Fatalf("Falha na migração da base de dados: %v", err)
@@ -43,6 +45,22 @@ func main() {
 
 	r.POST("/login", controllers.Login)
 
+	// --- INÍCIO DA ALTERAÇÃO ---
+	// Novo endpoint público para obter a hora do servidor
+	r.GET("/public/time", func(c *gin.Context) {
+		serverTime, err := services.GetWorldTime()
+		if err != nil {
+			// Se a API externa falhar, devolvemos a hora local do servidor (UTC)
+			c.JSON(http.StatusOK, gin.H{"serverTime": time.Now().UTC()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"serverTime": serverTime})
+	})
+	// --- FIM DA ALTERAÇÃO ---
+
+	r.GET("/public/fifo-queue", controllers.GetFIFOQueue)
+	r.GET("/public/backlog-count", controllers.GetBacklogCount)
+
 	api := r.Group("/api")
 	api.Use(middleware.RequireAuth)
 	{
@@ -52,6 +70,7 @@ func main() {
 		api.GET("/backlog-count", controllers.GetBacklogCount)
 		api.POST("/entry", middleware.RequirePermission("MANAGE_FIFO"), controllers.PackageEntry)
 		api.POST("/exit", middleware.RequirePermission("MANAGE_FIFO"), controllers.PackageExit)
+		api.PUT("/package/move/:id", middleware.RequirePermission("MOVE_PACKAGE"), controllers.MovePackage)
 
 		management := r.Group("/api/management")
 		management.Use(middleware.RequireAuth)
@@ -69,21 +88,24 @@ func main() {
 	r.Run(":8080")
 }
 
+// ... (seedAdminUser e seedData permanecem os mesmos)
 func seedAdminUser() {
 	var userCount int64
 	initializers.DB.Model(&models.User{}).Count(&userCount)
 	if userCount == 0 {
 		var adminRole models.Role
 		if err := initializers.DB.Where("name = ?", "admin").First(&adminRole).Error; err != nil {
-			log.Fatalf("Erro ao semear utilizador admin: papel 'admin' não encontrado. Certifique-se de que seedData() é executado primeiro.")
+			log.Fatalf("Erro ao semear utilizador admin: papel 'admin' não encontrado...")
 			return
 		}
 
 		hash, _ := bcrypt.GenerateFromPassword([]byte("admin"), 10)
 		admin := models.User{
-			Username:     "admin",
+			Username: "admin",
+			// --- ADICIONAR ESTA LINHA ---
+			FullName:     "Administrador do Sistema",
 			PasswordHash: string(hash),
-			Sector:       "Administração",
+			Sector:       "ADMINISTRAÇÃO", // Padronizado para maiúsculas
 			RoleID:       adminRole.ID,
 		}
 		initializers.DB.Create(&admin)
@@ -91,7 +113,6 @@ func seedAdminUser() {
 	}
 }
 
-// --- VERSÃO DEFINITIVA E À PROVA DE FALHAS DA FUNÇÃO SEEDDATA ---
 func seedData() {
 	var roleCount int64
 	initializers.DB.Model(&models.Role{}).Count(&roleCount)
@@ -111,6 +132,7 @@ func seedData() {
 			{Name: "CREATE_USER", Description: "Pode criar novos utilizadores"},
 			{Name: "EDIT_USER", Description: "Pode editar o papel e setor de outros utilizadores"},
 			{Name: "RESET_PASSWORD", Description: "Pode redefinir a senha de outros utilizadores"},
+			{Name: "MOVE_PACKAGE", Description: "Pode mover um item para uma nova rua"},
 		}
 		if err := tx.Create(&permissions).Error; err != nil {
 			return err
@@ -142,7 +164,7 @@ func seedData() {
 		// Associação para Leader
 		var leaderRole models.Role
 		var leaderPermissions []models.Permission
-		tx.Where("name IN ?", []string{"MANAGE_FIFO", "VIEW_LOGS", "VIEW_USERS", "EDIT_USER", "RESET_PASSWORD", "CREATE_USER"}).Find(&leaderPermissions)
+		tx.Where("name IN ?", []string{"MANAGE_FIFO", "VIEW_LOGS", "VIEW_USERS", "EDIT_USER", "RESET_PASSWORD", "CREATE_USER", "MOVE_PACKAGE"}).Find(&leaderPermissions)
 		tx.First(&leaderRole, "name = ?", "leader")
 		if err := tx.Model(&leaderRole).Association("Permissions").Append(&leaderPermissions); err != nil {
 			return err
@@ -151,10 +173,10 @@ func seedData() {
 
 		// Associação para FIFO
 		var fifoRole models.Role
-		var fifoPermission models.Permission
-		tx.Where("name = ?", "MANAGE_FIFO").First(&fifoPermission)
+		var fifoPermissions []models.Permission // Modificado para slice
+		tx.Where("name IN ?", []string{"MANAGE_FIFO", "MOVE_PACKAGE"}).Find(&fifoPermissions)
 		tx.First(&fifoRole, "name = ?", "fifo")
-		if err := tx.Model(&fifoRole).Association("Permissions").Append(&fifoPermission); err != nil {
+		if err := tx.Model(&fifoRole).Association("Permissions").Append(&fifoPermissions); err != nil {
 			return err
 		}
 		log.Println("Permissões de FIFO associadas.")

@@ -37,12 +37,10 @@ function ChangePasswordModal({ isOpen, onClose }) {
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
-                {/* --- ESTRUTURA DO CABEÇALHO ATUALIZADA --- */}
                 <div className="modal-header">
                     <h2>Alterar Senha</h2>
                     <button className="modal-close-button" onClick={onClose}>&times;</button>
                 </div>
-                {/* --- FIM DA ATUALIZAÇÃO --- */}
 
                 <form onSubmit={handleSubmit}>
                     <label htmlFor="oldPassword">Senha Atual</label>

@@ -13,11 +13,10 @@ function LogsPage() {
     const [error, setError] = useState('');
     const navigate = useNavigate();
 
-    // --- NOVO: Estado para os filtros ---
     const [filters, setFilters] = useState({
         username: '',
         fullname: '',
-        action: '', // 'ENTRADA', 'SAIDA', ou '' para todos
+        action: '',
         startDate: '',
         endDate: ''
     });
@@ -25,7 +24,6 @@ function LogsPage() {
     const fetchLogs = useCallback(async () => {
         setLoading(true);
         try {
-            // Constrói os parâmetros da URL a partir do estado dos filtros
             const params = new URLSearchParams();
             if (filters.username) params.append('username', filters.username);
             if (filters.fullname) params.append('fullname', filters.fullname);
@@ -43,11 +41,11 @@ function LogsPage() {
         } finally {
             setLoading(false);
         }
-    }, [filters]); // A função será recriada se os filtros mudarem
+    }, [filters]);
 
     useEffect(() => {
         fetchLogs();
-    }, [fetchLogs]); // Executa a busca inicial e sempre que a função fetchLogs for atualizada
+    }, [fetchLogs]);
 
     const handleFilterChange = (e) => {
         const { name, value } = e.target;
@@ -65,7 +63,6 @@ function LogsPage() {
                 <button onClick={() => navigate('/')} className="back-button">Voltar ao Dashboard</button>
             </header>
 
-            {/* --- NOVO: Painel de Filtros --- */}
             <div className="filters-panel">
                 <input
                     type="text"
@@ -103,7 +100,6 @@ function LogsPage() {
 
             <div className="table-container">
                 <table className="logs-table">
-                    {/* ... (cabeçalho da tabela sem alterações) ... */}
                     <thead>
                         <tr>
                             <th>Data/Hora</th>
@@ -115,7 +111,7 @@ function LogsPage() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan="">A carregar...</td></tr>
+                            <tr><td colSpan="5">A carregar...</td></tr>
                         ) : logs.length > 0 ? (
                             logs.map(log => (
                                 <tr key={log.ID}>

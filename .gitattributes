@@ -1,0 +1,7 @@
+# Tratar todos os arquivos como texto e normalizar para LF no repositório
+* text=auto eol=lf
+
+# Manter finais de linha originais para arquivos binários
+*.png binary
+*.jpg binary
+*.gif binary

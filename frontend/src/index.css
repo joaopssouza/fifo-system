@@ -44,7 +44,8 @@ body {
 
 /* 3. Estilos de Formulário Padrão */
 input[type="text"],
-input[type="password"] {
+input[type="password"],
+select {
   width: 100%;
   padding: 14px;
   background-color: #252525;
@@ -76,9 +77,6 @@ button {
   /* Largura ideal para um celular */
   margin: auto;
 }
-
-/* src/index.css */
-/* ... (adicionar ao final do CSS existente) ... */
 
 /* Dashboard Layout */
 .dashboard-container {
@@ -112,6 +110,14 @@ button {
   width: auto;
   padding: 0.5rem 1rem;
   background-color: var(--color-surface);
+  font-size: 0.8rem;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+.logout-button:hover {
+    background-color: #2a2a2a;
+    border-color: var(--color-accent-red);
 }
 
 .link-button {
@@ -159,21 +165,23 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1.2fr;
   gap: 1rem;
-  padding: 0.75rem;
+  padding: 0.30rem;
   font-weight: bold;
+  text-align: center;
 }
 
 .fifo-list-header {
   color: var(--color-secondary);
   text-transform: uppercase;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   border-bottom: 1px solid var(--color-border);
+  margin-bottom: 0.2rem;
 }
 
 .fifo-list-item {
   background-color: #2a2a2a;
   border-radius: 4px;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.2rem;
   align-items: center;
   font-size: 0.9rem;
 }
@@ -226,37 +234,28 @@ button {
   border-radius: 8px;
   width: 90%;
   max-width: 400px;
-  /* A propriedade 'position: relative' não é mais necessária aqui */
 }
 
-/* NOVA REGRA PARA O CABEÇALHO */
 .modal-header {
   display: flex;
   justify-content: space-between;
-  /* Alinha o título à esquerda e o botão à direita */
   align-items: center;
-  /* Alinha verticalmente no centro */
   width: 100%;
   margin-bottom: 1.5rem;
-  /* Espaço entre o cabeçalho e o formulário */
 }
 
 .modal-header h2 {
   margin: 0;
-  /* Remove a margem padrão do h2 para um alinhamento perfeito */
 }
 
 .modal-close-button {
-  /* Removemos o posicionamento absoluto */
   background: none;
   border: none;
   color: var(--color-secondary);
   font-size: 2rem;
-  /* Aumenta um pouco o tamanho para ser mais fácil de clicar */
   cursor: pointer;
   padding: 0;
   line-height: 1;
-  /* Garante que o 'x' fique bem centrado */
 }
 
 .modal-content h2 {
@@ -309,13 +308,9 @@ button {
   margin-left: 0.5rem;
 }
 
-/* src/index.css */
-/* ... (adicionar ao final do CSS existente) ... */
-
 /* Logs Page Layout */
 .logs-container {
   max-width: 900px;
-  /* Aumenta a largura para a tabela */
 }
 
 .logs-header {
@@ -363,13 +358,12 @@ button {
   background-color: var(--color-surface);
 }
 
-.logs-table td[colspan="4"] {
+.logs-table td[colspan="5"] {
   text-align: center;
   padding: 2rem;
   color: var(--color-secondary);
 }
 
-/* Action Tags for visual cue */
 .action-tag {
   padding: 0.3rem 0.6rem;
   border-radius: 4px;
@@ -387,8 +381,7 @@ button {
 }
 
 /* General messages */
-.loading-message,
-.error-message {
+.loading-message {
   text-align: center;
   margin-top: 4rem;
   font-size: 1.2rem;
@@ -397,10 +390,18 @@ button {
 .change-password-button {
   width: auto;
   padding: 0.5rem 1rem;
-  background-color: var(--color-accent-blue);
+  background-color: var(--color-surface);
   color: white;
   font-size: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
 }
+
+.change-password-button:hover {
+    background-color: #2a2a2a;
+    border-color: var(--color-accent-red);
+}
+
 
 .success-message {
   color: var(--color-accent-green);
@@ -412,53 +413,40 @@ button {
 /* Painel de Filtros */
 .filters-panel {
   display: grid;
-  /* Adapta o número de colunas ao tamanho da tela */
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
   padding: 1.5rem;
   background-color: var(--color-surface);
-  /* Usa a cor de superfície padrão dos cards */
   border: 1px solid var(--color-border);
   border-radius: 8px;
   margin-bottom: 2rem;
 }
 
-/* Garante que todos os inputs e selects dentro do painel tenham a mesma aparência */
 .filters-panel input,
 .filters-panel select {
+  margin-bottom: 0;
+}
+
+input[type="date"],
+select {
   width: 100%;
-  padding: 12px;
+  padding: 14px;
   background-color: #252525;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   color: var(--color-primary);
-  font-size: 0.9rem;
-  margin-bottom: 0;
-  /* Remove a margem padrão */
+  font-size: 1rem;
+  margin-bottom: 1rem;
 }
 
-/* Estilo para o ícone do seletor de data no Chrome (mantido) */
-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1);
-}
-
-/* Botão de Limpar Filtros */
 .clear-filters-button {
   width: 100%;
   background-color: var(--color-accent-red);
-  /* Usa o vermelho de destaque para ações de "reset" */
   color: var(--color-primary);
-  /* Alinha o botão na grelha, especialmente em telas maiores */
   grid-column: 1 / -1;
-  /* Faz o botão ocupar a largura total na última linha */
-}
-
-.clear-filters-button:hover {
-  opacity: 0.9;
 }
 
 /* Estilos para a Página de Administração */
-
 .admin-container {
   max-width: 900px;
 }
@@ -533,7 +521,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: white;
 }
 
-/** Estilos adicionais para os botões de navegação no dashboard */
 .admin-nav-buttons {
   display: flex;
   gap: 1rem;
@@ -541,43 +528,76 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   justify-content: center;
 }
 
-/** Estilo para o select nos modais */
-.modal-content select {
+.admin-nav-button {
   width: 100%;
-  padding: 14px;
-  background-color: #252525;
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  padding: 1rem 1.5rem;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  color: var(--color-primary);
-  font-size: 1rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-weight: bold;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.admin-nav-button:hover {
+    background-color: #2a2a2a;
+    border-color: var(--color-accent-red);
+}
+
+/* Buffer Buttons in Modal */
+.buffer-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
   margin-bottom: 1rem;
 }
 
-/* --- ESTILOS ATUALIZADOS PARA OS BOTÕES DE NAVEGAÇÃO --- */
-.nav-button {
+.buffer-button {
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  background-color: #252525;
+  color: var(--color-secondary);
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.buffer-button:hover {
+  border-color: var(--color-accent-red);
+  color: var(--color-primary);
+}
+
+.buffer-button.selected {
+  background-color: var(--color-accent-red);
+  color: white;
+  border-color: var(--color-accent-red);
+}
+
+/* FIFO List with Actions */
+.fifo-list-header.with-actions,
+.fifo-list-item.with-actions {
+  grid-template-columns: 1fr 1fr 1fr 1.2fr 0.8fr;
+}
+
+.fifo-list-header.with-actions span:last-child {
+  text-align: center;
+}
+
+.move-btn {
+  width: auto;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
   background-color: var(--color-surface);
   color: var(--color-primary);
   border: 1px solid var(--color-border);
-  padding: 1rem;
-  font-size: 0.9rem;
-  text-align: center;
-  text-transform: uppercase; /* A regra agora está aqui, aplicada apenas a esta classe */
 }
 
-.admin-nav-buttons .link-button {
-  
-  justify-items: center;
-  grid-template-columns: 1fr 1fr;
-  background-color: var(--color-accent-blue);
-  color: white;
-  padding: 1.1rem 1.5rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  text-transform: uppercase;
-  text-decoration: none;
-}
-
-.admin-nav-buttons .link-button:hover {
-  background-color: #3469bd;
+.move-btn:hover {
+  background-color: #333;
+  border-color: var(--color-accent-blue);
 }

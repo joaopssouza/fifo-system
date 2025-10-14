@@ -11,11 +11,16 @@ function EntryModal({ isOpen, onClose, onSuccess }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+
+        if (!buffer) {
+            setError('Por favor, selecione um buffer.');
+            return;
+        }
+
         try {
             await api.post('/api/entry', { trackingId, buffer, rua });
-            onSuccess(); // Atualiza os dados no dashboard
-            onClose();   // Fecha o modal
-            // Limpa os campos
+            onSuccess();
+            onClose();
             setTrackingId('');
             setBuffer('');
             setRua('');
@@ -37,8 +42,30 @@ function EntryModal({ isOpen, onClose, onSuccess }) {
                     <label htmlFor="trackingId">ID do Item</label>
                     <input id="trackingId" type="text" value={trackingId} onChange={e => setTrackingId(e.target.value)} placeholder="Ex: CG02" required />
 
-                    <label htmlFor="buffer">Buffer</label>
-                    <input id="buffer" type="text" value={buffer} onChange={e => setBuffer(e.target.value)} placeholder="Ex: RTS" required />
+                    <label>Buffer</label>
+                    <div className="buffer-options">
+                        <button
+                            type="button"
+                            className={`buffer-button ${buffer === 'RTS' ? 'selected' : ''}`}
+                            onClick={() => setBuffer('RTS')}
+                        >
+                            RTS
+                        </button>
+                        <button
+                            type="button"
+                            className={`buffer-button ${buffer === 'EHA' ? 'selected' : ''}`}
+                            onClick={() => setBuffer('EHA')}
+                        >
+                            EHA
+                        </button>
+                        <button
+                            type="button"
+                            className={`buffer-button ${buffer === 'SALVADOS' ? 'selected' : ''}`}
+                            onClick={() => setBuffer('SALVADOS')}
+                        >
+                            SALVADOS
+                        </button>
+                    </div>
 
                     <label htmlFor="rua">Rua</label>
                     <input id="rua" type="text" value={rua} onChange={e => setRua(e.target.value)} placeholder="Ex: RTS-002" required />

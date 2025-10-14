@@ -5,10 +5,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../context/WebSocketContext';
 
-// --- PASSO 1: Definir a lista de setores disponíveis ---
 const SECTORS = ["ADMINISTRAÇÃO", "FIFO", "LIDERANÇA", "OPERAÇÕES", "GERAL"];
 
-// --- PASSO 2: Atualizar o Modal de Criação ---
 const CreateUserModal = ({ isOpen, onClose, onSuccess, roles, actingUserRole }) => {
     const assignableRoles = useMemo(() => {
         if (actingUserRole === 'admin') {
@@ -21,7 +19,7 @@ const CreateUserModal = ({ isOpen, onClose, onSuccess, roles, actingUserRole }) 
     const [fullName, setFullName] = useState('');
     const [password, setPassword] = useState('');
     const [role, setRole] = useState(assignableRoles[0]?.Name || 'fifo');
-    const [sector, setSector] = useState(SECTORS[0]); // Define o setor inicial como o primeiro da lista
+    const [sector, setSector] = useState(SECTORS[0]);
     const [error, setError] = useState('');
 
     const handleSubmit = async (e) => {
@@ -74,7 +72,6 @@ const CreateUserModal = ({ isOpen, onClose, onSuccess, roles, actingUserRole }) 
     );
 };
 
-// --- PASSO 3: Atualizar o Modal de Edição ---
 const EditUserModal = ({ isOpen, onClose, onSuccess, user, roles }) => {
     const [fullName, setFullName] = useState('');
     const [roleId, setRoleId] = useState('');
@@ -113,7 +110,6 @@ const EditUserModal = ({ isOpen, onClose, onSuccess, user, roles }) => {
                 <form onSubmit={handleUpdate}>
                     <label>Nome Completo</label>
                     <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} required />
-
                     <label>Papel</label>
                     <select value={roleId} onChange={e => setRoleId(e.target.value)}>
                         {roles
@@ -123,7 +119,6 @@ const EditUserModal = ({ isOpen, onClose, onSuccess, user, roles }) => {
                             ))
                         }
                     </select>
-                    {/* O campo de texto do setor foi substituído por um <select> */}
                     <label>Setor</label>
                     <select value={sector} onChange={e => setSector(e.target.value)} required>
                         {SECTORS.map(s => (
@@ -138,7 +133,37 @@ const EditUserModal = ({ isOpen, onClose, onSuccess, user, roles }) => {
     );
 };
 
-const ResetPasswordModal = ({ isOpen, onClose, user }) => { const [newPassword, setNewPassword] = useState(''); const [error, setError] = useState(''); const handleReset = async (e) => { e.preventDefault(); setError(''); try { await api.put(`/api/management/users/${user.ID}/reset-password`, { newPassword }); onClose(); } catch (err) { setError(err.response?.data?.error || "Falha ao redefinir a senha."); } }; if (!isOpen || !user) return null; return (<div className="modal-overlay" onClick={onClose}><div className="modal-content" onClick={e => e.stopPropagation()}><div className="modal-header"><h2>Redefinir Senha de: {user.Username.toUpperCase()}</h2><button className="modal-close-button" onClick={onClose}>&times;</button></div><form onSubmit={handleReset}><label>Nova Senha</label><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="6" /><button type="submit" className="modal-submit-button red">Redefinir Senha</button>{error && <p className="error-message">{error}</p>}</form></div></div>); };
+const ResetPasswordModal = ({ isOpen, onClose, user }) => { 
+    const [newPassword, setNewPassword] = useState(''); 
+    const [error, setError] = useState(''); 
+    const handleReset = async (e) => { 
+        e.preventDefault(); 
+        setError(''); 
+        try { 
+            await api.put(`/api/management/users/${user.ID}/reset-password`, { newPassword }); 
+            onClose(); 
+        } catch (err) { 
+            setError(err.response?.data?.error || "Falha ao redefinir a senha."); 
+        } 
+    }; 
+    if (!isOpen || !user) return null; 
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                    <h2>Redefinir Senha de: {user.Username.toUpperCase()}</h2>
+                    <button className="modal-close-button" onClick={onClose}>&times;</button>
+                </div>
+                <form onSubmit={handleReset}>
+                    <label>Nova Senha</label>
+                    <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="6" />
+                    <button type="submit" className="modal-submit-button red">Redefinir Senha</button>
+                    {error && <p className="error-message">{error}</p>}
+                </form>
+            </div>
+        </div>
+    ); 
+};
 
 function AdminPage() {
     const { user: actingUser, hasPermission } = useAuth();
@@ -167,31 +192,13 @@ function AdminPage() {
 
     useEffect(() => { fetchAdminData(); }, [fetchAdminData]);
     
-        const canPerformActionsOn = (targetUser) => {
-        // Regra 1: Ninguém pode realizar ações em si mesmo.
-        if (actingUser.username === targetUser.Username) {
-            return false;
-        }
-
-        // Regra 2: Ninguém pode realizar ações em um 'admin'.
-        if (targetUser.Role.Name === 'admin') {
-            return false;
-        }
-
-        // Regra 3: Se o utilizador logado for um 'admin', ele pode realizar ações em qualquer um (que não seja outro admin, já verificado acima).
-        if (actingUser.role === 'admin') {
-            return true;
-        }
-
-        // Regra 4: Se o utilizador logado for um 'leader', ele NÃO PODE realizar ações em outros 'leaders'.
+    const canPerformActionsOn = (targetUser) => {
+        if (actingUser.username === targetUser.Username) return false;
+        if (targetUser.Role.Name === 'admin') return false;
+        if (actingUser.role === 'admin') return true;
         if (actingUser.role === 'leader') {
-            if (targetUser.Role.Name === 'leader') {
-                return false;
-            }
-            return true; // Mas pode realizar ações em papéis inferiores (ex: 'fifo').
+            return targetUser.Role.Name !== 'leader';
         }
-
-        // Por defeito, outros papéis não podem realizar ações.
         return false;
     };
 
@@ -210,9 +217,7 @@ function AdminPage() {
                      <table className="admin-table">
                         <thead><tr><th>Nome Completo</th><th>Utilizador</th><th>Papel</th><th>Setor</th><th>ONLINE</th></tr></thead>
                         <tbody>
-                            {onlineUsers.length > 0 ? (
-                                onlineUsers.map((user, index) => (<tr key={`online-${user.id}-${index}`}><td>{user.fullName.toUpperCase()}</td><td>{user.username.toUpperCase()}</td><td>{user.role.toUpperCase()}</td><td>{user.sector.toUpperCase()}</td><td style={{ textAlign: 'center' }}>🟢</td></tr>))
-                            ) : ( <tr><td colSpan="5">Nenhum utilizador online.</td></tr> )}
+                            {onlineUsers.map((user, index) => (<tr key={`online-${user.id}-${index}`}><td>{user.fullName.toUpperCase()}</td><td>{user.username.toUpperCase()}</td><td>{user.role.toUpperCase()}</td><td>{user.sector.toUpperCase()}</td><td style={{ textAlign: 'center' }}>🟢</td></tr>))}
                         </tbody>
                     </table>
                 </div>
@@ -226,7 +231,7 @@ function AdminPage() {
                     <table className="admin-table">
                          <thead><tr><th>Nome Completo</th><th>Utilizador</th><th>Papel</th><th>Setor</th><th>Ações</th></tr></thead>
                         <tbody>
-                            {loading ? (<tr><td colSpan="4">A carregar...</td></tr>) 
+                            {loading ? (<tr><td colSpan="5">A carregar...</td></tr>) 
                             : users.map(user => (
                                 <tr key={user.ID}>
                                     <td>{user.FullName.toUpperCase()}</td>
@@ -234,7 +239,6 @@ function AdminPage() {
                                     <td>{user.Role.Name.toUpperCase()}</td>
                                     <td>{user.Sector.toUpperCase()}</td>
                                     <td>
-                                        {/* --- LÓGICA DE EXIBIÇÃO SIMPLIFICADA E CORRIGIDA --- */}
                                         {canPerformActionsOn(user) && (
                                             <div className="action-buttons-cell">
                                                 {hasPermission('EDIT_USER') && (<button onClick={() => openEditModal(user)} className="edit-btn">Editar</button>)}
@@ -248,28 +252,11 @@ function AdminPage() {
                     </table>
                 </div>
             </section>
-            <CreateUserModal 
-                isOpen={isCreateModalOpen} 
-                onClose={() => setCreateModalOpen(false)} 
-                onSuccess={fetchAdminData} 
-                roles={roles}
-                actingUserRole={actingUser?.role}
-            />
-            <EditUserModal 
-                isOpen={isEditModalOpen} 
-                onClose={() => setEditModalOpen(false)} 
-                onSuccess={fetchAdminData} 
-                user={selectedUser} 
-                roles={roles} 
-            />
-            <ResetPasswordModal 
-                isOpen={isResetModalOpen} 
-                onClose={() => setResetModalOpen(false)} 
-                user={selectedUser} 
-            />
+            <CreateUserModal isOpen={isCreateModalOpen} onClose={() => setCreateModalOpen(false)} onSuccess={fetchAdminData} roles={roles} actingUserRole={actingUser?.role} />
+            <EditUserModal isOpen={isEditModalOpen} onClose={() => setEditModalOpen(false)} onSuccess={fetchAdminData} user={selectedUser} roles={roles} />
+            <ResetPasswordModal isOpen={isResetModalOpen} onClose={() => setResetModalOpen(false)} user={selectedUser} />
         </div>
     );
 }
 
 export default AdminPage;
-

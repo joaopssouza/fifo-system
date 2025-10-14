@@ -15,9 +15,7 @@ export const WebSocketProvider = ({ children }) => {
 
             ws.onopen = () => {
                 console.log("Conexão WebSocket Estabelecida (WebSocketContext)");
-                // --- ALTERAÇÃO CRÍTICA ---
                 // A conexão está aberta. Agora, pedimos ativamente a lista de utilizadores.
-                ws.send(JSON.stringify({ type: "REQUEST_ONLINE_USERS" }));
             };
             
             ws.onmessage = (event) => {
