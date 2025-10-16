@@ -50,7 +50,7 @@ func PackageEntry(c *gin.Context) {
 		} else if err == nil {
 			// Verifica se já está ativo.
 			if pkg.Buffer != "PENDENTE" {
-				return fmt.Errorf("O item %s já se encontra na fila (Buffer: %s, Rua: %s)", pkg.TrackingID, pkg.Buffer, pkg.Rua)
+				return fmt.Errorf("o item %s já se encontra na fila (Buffer: %s, Rua: %s)", pkg.TrackingID, pkg.Buffer, pkg.Rua)
 			}
 			// Se estiver "PENDENTE", ativa-o atualizando os campos.
 			updates := models.Package{

@@ -12,7 +12,8 @@ import (
 	"log"
 	"net/http"
 	"time"
-
+	"os"
+	
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -83,8 +84,13 @@ func main() {
 		}
 	}
 
-	log.Println("Iniciando o servidor na porta 8080...")
-	r.Run(":8080")
+	port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080" // Mantém 8080 como padrão para desenvolvimento local
+    }
+
+    log.Printf("Iniciando o servidor na porta %s...", port)
+    r.Run(":" + port) // <-- ALTERAÇÃO AQUI
 }
 
 // ... (funções seedAdminUser e seedData permanecem as mesmas)
