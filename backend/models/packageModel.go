@@ -3,14 +3,12 @@ package models
 
 import (
 	"time"
+	"gorm.io/gorm"
 )
 
-// Package struct sem o gorm.Model para desativar o soft delete.
+// --- MODELO ATUALIZADO PARA USAR GORM.MODEL (HABILITANDO SOFT DELETE) ---
 type Package struct {
-	ID        uint `gorm:"primarykey"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	// O campo DeletedAt foi removido.
+	gorm.Model // Contém ID, CreatedAt, UpdatedAt e DeletedAt (para o soft delete)
 
 	TrackingID     string `gorm:"unique;not null"`
 	Buffer         string `gorm:"not null"`

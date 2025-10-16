@@ -7,16 +7,15 @@ import (
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/middleware"
 	"fifo-system/backend/models"
-	"fifo-system/backend/services" // Importe o novo pacote
+	"fifo-system/backend/services"
 	"fifo-system/backend/websocket"
 	"log"
-	"net/http" // Importe para usar http.StatusOK
-	"time"     // Importe para usar time.Now()
+	"net/http"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 func init() {
@@ -43,24 +42,22 @@ func main() {
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 	r.Use(cors.New(corsConfig))
 
+	// --- ROTAS PÚBLICAS ---
+	// Estas rotas NÃO passam pelo middleware de autenticação.
 	r.POST("/login", controllers.Login)
-
-	// --- INÍCIO DA ALTERAÇÃO ---
-	// Novo endpoint público para obter a hora do servidor
 	r.GET("/public/time", func(c *gin.Context) {
 		serverTime, err := services.GetWorldTime()
 		if err != nil {
-			// Se a API externa falhar, devolvemos a hora local do servidor (UTC)
 			c.JSON(http.StatusOK, gin.H{"serverTime": time.Now().UTC()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"serverTime": serverTime})
 	})
-	// --- FIM DA ALTERAÇÃO ---
-
 	r.GET("/public/fifo-queue", controllers.GetFIFOQueue)
 	r.GET("/public/backlog-count", controllers.GetBacklogCount)
 
+	// --- ROTAS PRIVADAS / PROTEGIDAS ---
+	// Todas as rotas dentro deste grupo "/api" exigirão um token de autenticação válido.
 	api := r.Group("/api")
 	api.Use(middleware.RequireAuth)
 	{
@@ -71,9 +68,11 @@ func main() {
 		api.POST("/entry", middleware.RequirePermission("MANAGE_FIFO"), controllers.PackageEntry)
 		api.POST("/exit", middleware.RequirePermission("MANAGE_FIFO"), controllers.PackageExit)
 		api.PUT("/package/move/:id", middleware.RequirePermission("MOVE_PACKAGE"), controllers.MovePackage)
+		api.POST("/qrcodes/generate-data", middleware.RequirePermission("GENERATE_QR_CODES"), controllers.GenerateQRCodeData)
+		api.POST("/qrcodes/confirm", middleware.RequirePermission("GENERATE_QR_CODES"), controllers.ConfirmQRCodeData)
+		api.GET("/qrcodes/find/:trackingId", middleware.RequirePermission("GENERATE_QR_CODES"), controllers.FindQRCodeData)
 
-		management := r.Group("/api/management")
-		management.Use(middleware.RequireAuth)
+		management := api.Group("/management") // Corrigido para 'api.Group' para herdar a autenticação
 		{
 			management.GET("/roles", middleware.RequirePermission("EDIT_USER"), controllers.GetRoles)
 			management.POST("/users", middleware.RequirePermission("CREATE_USER"), controllers.CreateUser)
@@ -88,7 +87,7 @@ func main() {
 	r.Run(":8080")
 }
 
-// ... (seedAdminUser e seedData permanecem os mesmos)
+// ... (funções seedAdminUser e seedData permanecem as mesmas)
 func seedAdminUser() {
 	var userCount int64
 	initializers.DB.Model(&models.User{}).Count(&userCount)
@@ -102,10 +101,9 @@ func seedAdminUser() {
 		hash, _ := bcrypt.GenerateFromPassword([]byte("admin"), 10)
 		admin := models.User{
 			Username: "admin",
-			// --- ADICIONAR ESTA LINHA ---
 			FullName:     "Administrador do Sistema",
 			PasswordHash: string(hash),
-			Sector:       "ADMINISTRAÇÃO", // Padronizado para maiúsculas
+			Sector:       "ADMINISTRAÇÃO", 
 			RoleID:       adminRole.ID,
 		}
 		initializers.DB.Create(&admin)
@@ -114,79 +112,49 @@ func seedAdminUser() {
 }
 
 func seedData() {
-	var roleCount int64
-	initializers.DB.Model(&models.Role{}).Count(&roleCount)
-	if roleCount > 0 {
-		log.Println("Os dados de papéis e permissões já existem. A saltar o seeding.")
-		return
+	log.Println("Sincronizando papéis e permissões...")
+
+	allPermissions := []models.Permission{
+		{Name: "MANAGE_FIFO", Description: "Pode realizar entradas e saídas na fila"},
+		{Name: "VIEW_LOGS", Description: "Pode visualizar os logs de atividade"},
+		{Name: "VIEW_USERS", Description: "Pode visualizar a lista de utilizadores"},
+		{Name: "CREATE_USER", Description: "Pode criar novos utilizadores"},
+		{Name: "EDIT_USER", Description: "Pode editar o papel e setor de outros utilizadores"},
+		{Name: "RESET_PASSWORD", Description: "Pode redefinir a senha de outros utilizadores"},
+		{Name: "MOVE_PACKAGE", Description: "Pode mover um item para uma nova rua"},
+		{Name: "GENERATE_QR_CODES", Description: "Pode gerar novos QR Codes de rastreamento"},
 	}
 
-	log.Println("A semear dados iniciais de Papéis e Permissões...")
+	for _, p := range allPermissions {
+		initializers.DB.FirstOrCreate(&p, models.Permission{Name: p.Name})
+	}
+	log.Println("Todas as permissões foram criadas ou verificadas.")
 
-	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
-		// 1. Criar todas as permissões primeiro
-		permissions := []models.Permission{
-			{Name: "MANAGE_FIFO", Description: "Pode realizar entradas e saídas na fila"},
-			{Name: "VIEW_LOGS", Description: "Pode visualizar os logs de atividade"},
-			{Name: "VIEW_USERS", Description: "Pode visualizar a lista de utilizadores"},
-			{Name: "CREATE_USER", Description: "Pode criar novos utilizadores"},
-			{Name: "EDIT_USER", Description: "Pode editar o papel e setor de outros utilizadores"},
-			{Name: "RESET_PASSWORD", Description: "Pode redefinir a senha de outros utilizadores"},
-			{Name: "MOVE_PACKAGE", Description: "Pode mover um item para uma nova rua"},
-		}
-		if err := tx.Create(&permissions).Error; err != nil {
-			return err
-		}
-		log.Println("Permissões criadas com sucesso.")
-
-		// 2. Criar os papéis (ainda sem associações)
-		roles := []models.Role{
-			{Name: "admin", Description: "Administrador do Sistema"},
-			{Name: "leader", Description: "Líder de Equipa"},
-			{Name: "fifo", Description: "Operador FIFO"},
-		}
-		if err := tx.Create(&roles).Error; err != nil {
-			return err
-		}
-		log.Println("Papéis criados com sucesso.")
-
-		// 3. AGORA, com os papéis e permissões já existentes, criamos as associações
-		log.Println("A associar permissões aos papéis...")
-
-		// Associação para Admin (todas as permissões)
-		var adminRole models.Role
-		tx.First(&adminRole, "name = ?", "admin")
-		if err := tx.Model(&adminRole).Association("Permissions").Append(&permissions); err != nil {
-			return err
-		}
-		log.Println("Permissões de Admin associadas.")
-
-		// Associação para Leader
-		var leaderRole models.Role
-		var leaderPermissions []models.Permission
-		tx.Where("name IN ?", []string{"MANAGE_FIFO", "VIEW_LOGS", "VIEW_USERS", "EDIT_USER", "RESET_PASSWORD", "CREATE_USER", "MOVE_PACKAGE"}).Find(&leaderPermissions)
-		tx.First(&leaderRole, "name = ?", "leader")
-		if err := tx.Model(&leaderRole).Association("Permissions").Append(&leaderPermissions); err != nil {
-			return err
-		}
-		log.Println("Permissões de Leader associadas.")
-
-		// Associação para FIFO
-		var fifoRole models.Role
-		var fifoPermissions []models.Permission // Modificado para slice
-		tx.Where("name IN ?", []string{"MANAGE_FIFO", "MOVE_PACKAGE"}).Find(&fifoPermissions)
-		tx.First(&fifoRole, "name = ?", "fifo")
-		if err := tx.Model(&fifoRole).Association("Permissions").Append(&fifoPermissions); err != nil {
-			return err
-		}
-		log.Println("Permissões de FIFO associadas.")
-
-		return nil // Commit da transação
-	})
-
-	if err != nil {
-		log.Fatalf("Falha ao semear a base de dados: %v", err)
+	rolesToPermissions := map[string][]string{
+		"admin": {
+			"MANAGE_FIFO", "VIEW_LOGS", "VIEW_USERS", "CREATE_USER",
+			"EDIT_USER", "RESET_PASSWORD", "MOVE_PACKAGE", "GENERATE_QR_CODES",
+		},
+		"leader": {
+			"MANAGE_FIFO", "VIEW_LOGS", "VIEW_USERS", "CREATE_USER",
+			"EDIT_USER", "RESET_PASSWORD", "MOVE_PACKAGE", "GENERATE_QR_CODES",
+		},
+		"fifo": {
+			"MANAGE_FIFO", "MOVE_PACKAGE",
+		},
 	}
 
-	log.Println("Seeding da base de dados concluído com sucesso.")
+	for roleName, permissionNames := range rolesToPermissions {
+		var role models.Role
+		initializers.DB.FirstOrCreate(&role, models.Role{Name: roleName})
+
+		var permissionsToAssign []models.Permission
+		initializers.DB.Where("name IN ?", permissionNames).Find(&permissionsToAssign)
+
+		err := initializers.DB.Model(&role).Association("Permissions").Replace(&permissionsToAssign)
+		if err != nil {
+			log.Printf("Falha ao associar permissões para o papel '%s': %v\n", roleName, err)
+		}
+	}
+	log.Println("Sincronização de papéis e permissões concluída com sucesso.")
 }

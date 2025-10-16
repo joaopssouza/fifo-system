@@ -20,38 +20,55 @@ func PackageEntry(c *gin.Context) {
 		Rua        string `json:"rua" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Input inválido"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Input inválido. Todos os campos são necessários."})
 		return
 	}
 
 	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
-		var existingPackage models.Package
-		if err := tx.First(&existingPackage, "tracking_id = ?", body.TrackingID).Error; err == nil {
-			return fmt.Errorf("Um item com este ID já existe na fila")
-		}
+		var pkg models.Package
+		err := tx.First(&pkg, "tracking_id = ?", body.TrackingID).Error
 
-		// --- INÍCIO DA ALTERAÇÃO ---
-		// Obtém a hora autoritativa do nosso novo serviço
+		// Obtém a hora atual para a transação.
 		currentTime, timeErr := services.GetWorldTime()
 		if timeErr != nil {
-			// Loga o erro, mas continua a usar o tempo do servidor como fallback
-			log.Printf("AVISO: Falha ao buscar a hora mundial, a usar a hora do servidor: %v", timeErr)
+			log.Printf("AVISO: Falha ao buscar a hora mundial, usando a hora do servidor: %v", timeErr)
 		}
 
-		pkg := models.Package{
-			TrackingID:     body.TrackingID,
-			Buffer:         body.Buffer,
-			Rua:            body.Rua,
-			EntryTimestamp: currentTime, // Usa a hora obtida
-		}
-		// --- FIM DA ALTERAÇÃO ---
-
-		if err := tx.Create(&pkg).Error; err != nil {
+		// CASO 1: O QR Code NÃO EXISTE no banco de dados (é um código antigo/legado).
+		if err == gorm.ErrRecordNotFound {
+			// Cria um novo registro de pacote já ativo.
+			newPackage := models.Package{
+				TrackingID:     body.TrackingID,
+				Buffer:         body.Buffer,
+				Rua:            body.Rua,
+				EntryTimestamp: currentTime,
+			}
+			if err := tx.Create(&newPackage).Error; err != nil {
+				return err
+			}
+			// CASO 2: O QR Code EXISTE no banco de dados.
+		} else if err == nil {
+			// Verifica se já está ativo.
+			if pkg.Buffer != "PENDENTE" {
+				return fmt.Errorf("O item %s já se encontra na fila (Buffer: %s, Rua: %s)", pkg.TrackingID, pkg.Buffer, pkg.Rua)
+			}
+			// Se estiver "PENDENTE", ativa-o atualizando os campos.
+			updates := models.Package{
+				Buffer:         body.Buffer,
+				Rua:            body.Rua,
+				EntryTimestamp: currentTime,
+			}
+			if err := tx.Model(&pkg).Updates(updates).Error; err != nil {
+				return err
+			}
+			// CASO 3: Ocorreu outro erro de banco de dados.
+		} else {
 			return err
 		}
 
+		// Cria o log de auditoria para ambos os casos (criação ou atualização).
 		user, _ := c.Get("user")
-		logDetails := fmt.Sprintf("A Gaiola %s entrou no buffer %s na rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
+		logDetails := fmt.Sprintf("A Gaiola %s entrou no buffer %s na rua %s", body.TrackingID, body.Buffer, body.Rua)
 		if err := services.CreateAuditLog(tx, user.(models.User), "ENTRADA", logDetails); err != nil {
 			return err
 		}
@@ -60,37 +77,41 @@ func PackageEntry(c *gin.Context) {
 	})
 
 	if err != nil {
-		if err.Error() == "Um item com este ID já existe na fila" {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create package"})
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Package registered successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Entrada do item registrada com sucesso."})
 }
 
-// O resto das funções (PackageExit, MovePackage, etc.) permanecem as mesmas
-// ... (COLE O RESTO DO SEU FICHEIRO packageController.go AQUI)
+// --- FUNÇÃO PackageExit CORRIGIDA E SEGURA ---
 func PackageExit(c *gin.Context) {
 	var body struct {
 		TrackingID string `json:"trackingId" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Tracking ID is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "O Tracking ID é obrigatório."})
 		return
 	}
 
 	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
 		var pkg models.Package
+		// 1. Encontra o pacote.
 		if err := tx.First(&pkg, "tracking_id = ?", body.TrackingID).Error; err != nil {
-			return fmt.Errorf("package not found")
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("item não encontrado")
+			}
+			return err
 		}
 
+		// 2. VALIDAÇÃO CRÍTICA: Se o buffer for "PENDENTE", a operação é abortada.
+		if pkg.Buffer == "PENDENTE" {
+			return fmt.Errorf("este item existe, mas ainda não teve entrada na fila e não pode ser removido")
+		}
+
+		// 3. Apenas se a validação passar, o log e a remoção são executados.
 		user, _ := c.Get("user")
-		logDetails := fmt.Sprintf("Package %s removed from buffer %s at rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
-		// Passa o objeto user completo
+		logDetails := fmt.Sprintf("A Gaiola %s foi removida do buffer %s na rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
 		if err := services.CreateAuditLog(tx, user.(models.User), "SAIDA", logDetails); err != nil {
 			return err
 		}
@@ -103,22 +124,24 @@ func PackageExit(c *gin.Context) {
 	})
 
 	if err != nil {
-		if err.Error() == "package not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if err.Error() == "item não encontrado" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Item não encontrado na fila."})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove package"})
+		if err.Error() == "este item existe, mas ainda não teve entrada na fila e não pode ser removido" {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao remover o item."})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Package removed successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Item removido da fila com sucesso."})
 }
 
 func MovePackage(c *gin.Context) {
-	// Extrair o ID do pacote da URL
 	packageID := c.Param("id")
 
-	// Extrair a nova rua do corpo da requisição
 	var body struct {
 		Rua string `json:"rua" binding:"required"`
 	}
@@ -129,7 +152,6 @@ func MovePackage(c *gin.Context) {
 
 	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
 		var pkg models.Package
-		// Encontra o pacote pelo seu ID primário
 		if err := tx.First(&pkg, packageID).Error; err != nil {
 			return fmt.Errorf("item não encontrado")
 		}
@@ -137,12 +159,10 @@ func MovePackage(c *gin.Context) {
 		oldRua := pkg.Rua
 		newRua := body.Rua
 
-		// Atualiza o campo Rua
 		if err := tx.Model(&pkg).Update("rua", newRua).Error; err != nil {
 			return err
 		}
 
-		// Cria o registro de auditoria
 		user, _ := c.Get("user")
 		logDetails := fmt.Sprintf("A Gaiola %s foi movida da rua %s para %s", pkg.TrackingID, oldRua, newRua)
 		if err := services.CreateAuditLog(tx, user.(models.User), "MOVIMENTACAO", logDetails); err != nil {
@@ -166,33 +186,29 @@ func MovePackage(c *gin.Context) {
 
 func GetFIFOQueue(c *gin.Context) {
 	var packages []models.Package
-	initializers.DB.Order("entry_timestamp asc").Find(&packages)
+	initializers.DB.Where("buffer <> ?", "PENDENTE").Order("entry_timestamp asc").Find(&packages)
 	c.JSON(http.StatusOK, gin.H{"data": packages})
 }
 
 func GetBacklogCount(c *gin.Context) {
 	var count int64
-	initializers.DB.Model(&models.Package{}).Count(&count)
+	initializers.DB.Model(&models.Package{}).Where("buffer <> ?", "PENDENTE").Count(&count)
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
-// GetAuditLogs agora também pode filtrar pelo nome completo
 func GetAuditLogs(c *gin.Context) {
 	username := c.Query("username")
-	fullname := c.Query("fullname") // <-- 1. Ler o novo parâmetro
+	fullname := c.Query("fullname")
 	action := c.Query("action")
 	startDate := c.Query("startDate")
 	endDate := c.Query("endDate")
 
 	query := initializers.DB.Order("created_at desc")
 
-	// 2. Aplicar filtro de username se existir
 	if username != "" {
 		query = query.Where("username ILIKE ?", "%"+username+"%")
 	}
-	// 3. Aplicar filtro de fullname se existir
 	if fullname != "" {
-		// O nome da coluna no banco é 'user_fullname' conforme o model 'auditLogModel.go'
 		query = query.Where("user_fullname ILIKE ?", "%"+fullname+"%")
 	}
 	if action != "" {
@@ -210,4 +226,20 @@ func GetAuditLogs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": logs})
+}
+
+// GetBufferCounts retorna a contagem de pacotes para cada buffer principal.
+func GetBufferCounts(c *gin.Context) {
+	var rtsCount, ehaCount, salCount int64
+
+	// Conta separadamente para cada buffer que está ativo na fila
+	initializers.DB.Model(&models.Package{}).Where("buffer = ?", "RTS").Count(&rtsCount)
+	initializers.DB.Model(&models.Package{}).Where("buffer = ?", "EHA").Count(&ehaCount)
+	initializers.DB.Model(&models.Package{}).Where("buffer = ?", "SAL").Count(&salCount)
+
+	c.JSON(http.StatusOK, gin.H{
+		"rts": rtsCount,
+		"eha": ehaCount,
+		"sal": salCount,
+	})
 }
