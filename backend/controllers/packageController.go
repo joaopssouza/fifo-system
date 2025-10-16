@@ -46,7 +46,7 @@ func PackageEntry(c *gin.Context) {
 			if err := tx.Create(&newPackage).Error; err != nil {
 				return err
 			}
-			// CASO 2: O QR Code EXISTE no banco de dados.
+		// CASO 2: O QR Code EXISTE no banco de dados.
 		} else if err == nil {
 			// Verifica se já está ativo.
 			if pkg.Buffer != "PENDENTE" {
@@ -61,7 +61,7 @@ func PackageEntry(c *gin.Context) {
 			if err := tx.Model(&pkg).Updates(updates).Error; err != nil {
 				return err
 			}
-			// CASO 3: Ocorreu outro erro de banco de dados.
+		// CASO 3: Ocorreu outro erro de banco de dados.
 		} else {
 			return err
 		}
@@ -226,20 +226,4 @@ func GetAuditLogs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": logs})
-}
-
-// GetBufferCounts retorna a contagem de pacotes para cada buffer principal.
-func GetBufferCounts(c *gin.Context) {
-	var rtsCount, ehaCount, salCount int64
-
-	// Conta separadamente para cada buffer que está ativo na fila
-	initializers.DB.Model(&models.Package{}).Where("buffer = ?", "RTS").Count(&rtsCount)
-	initializers.DB.Model(&models.Package{}).Where("buffer = ?", "EHA").Count(&ehaCount)
-	initializers.DB.Model(&models.Package{}).Where("buffer = ?", "SAL").Count(&salCount)
-
-	c.JSON(http.StatusOK, gin.H{
-		"rts": rtsCount,
-		"eha": ehaCount,
-		"sal": salCount,
-	})
 }
