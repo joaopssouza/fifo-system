@@ -30,9 +30,15 @@ function EntryModal({ isOpen, onClose, onSuccess }) {
     };
 
     if (!isOpen) return null;
+    
+    const handleOverlayClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onMouseDown={handleOverlayClick}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2>Nova Entrada FIFO</h2>
@@ -58,13 +64,15 @@ function EntryModal({ isOpen, onClose, onSuccess }) {
                         >
                             EHA
                         </button>
+                        {/* --- BOTÃO MODIFICADO --- */}
                         <button
                             type="button"
-                            className={`buffer-button ${buffer === 'SALVADOS' ? 'selected' : ''}`}
-                            onClick={() => setBuffer('SALVADOS')}
+                            className={`buffer-button ${buffer === 'SAL' ? 'selected' : ''}`}
+                            onClick={() => setBuffer('SAL')}
                         >
                             SALVADOS
                         </button>
+                        {/* --- FIM DA MODIFICAÇÃO --- */}
                     </div>
 
                     <label htmlFor="rua">Rua</label>

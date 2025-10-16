@@ -18,7 +18,11 @@ const formatDuration = (seconds) => {
 };
 
 function DashboardPage() {
+    // --- LINHA CORRIGIDA ---
+    // A variável 'isGuest' foi adicionada à desestruturação do useAuth()
     const { user, logout, hasPermission, isGuest } = useAuth();
+    // --- FIM DA CORREÇÃO ---
+
     const navigate = useNavigate();
     const [queue, setQueue] = useState([]);
     const [backlog, setBacklog] = useState(0);
@@ -28,11 +32,8 @@ function DashboardPage() {
     const [isChangePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
     const [isMoveModalOpen, setMoveModalOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState(null);
-
-    // --- INÍCIO DAS NOVAS ALTERAÇÕES DE TEMPO ---
-    const [timeOffset, setTimeOffset] = useState(0); // Diferença entre o cliente e o servidor
-    const [syncedTime, setSyncedTime] = useState(new Date().getTime()); // Hora do cliente + offset
-    // --- FIM DAS NOVAS ALTERAÇÕES DE TEMPO ---
+    const [timeOffset, setTimeOffset] = useState(0);
+    const [syncedTime, setSyncedTime] = useState(new Date().getTime());
 
     const fetchData = useCallback(async () => {
         try {
@@ -54,10 +55,6 @@ function DashboardPage() {
 
     useEffect(() => {
         fetchData();
-    }, [fetchData]);
-
-    // --- HOOKS DE SINCRONIZAÇÃO DE TEMPO ---
-    useEffect(() => {
         const syncTime = async () => {
             try {
                 const response = await api.get('/public/time');
@@ -66,11 +63,11 @@ function DashboardPage() {
                 setTimeOffset(serverTime - localTime);
             } catch (error) {
                 console.error("Falha ao sincronizar o tempo com o servidor:", error);
-                setTimeOffset(0); // Usa o tempo local em caso de falha
+                setTimeOffset(0);
             }
         };
         syncTime();
-    }, []);
+    }, [fetchData]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -78,7 +75,14 @@ function DashboardPage() {
         }, 1000);
         return () => clearInterval(interval);
     }, [timeOffset]);
-    // --- FIM DOS HOOKS DE SINCRONIZAÇÃO ---
+
+    const bufferCounts = useMemo(() => {
+        return {
+            RTS: queue.filter(item => item.Buffer === 'RTS').length,
+            EHA: queue.filter(item => item.Buffer === 'EHA').length,
+            SAL: queue.filter(item => item.Buffer === 'SAL').length,
+        };
+    }, [queue]);
 
     const oldestItemDuration = useMemo(() => {
         if (queue.length > 0) {
@@ -87,7 +91,6 @@ function DashboardPage() {
         }
         return 0;
     }, [queue, syncedTime]);
-
 
     const openMoveModal = (item) => {
         setSelectedItem(item);
@@ -129,42 +132,62 @@ function DashboardPage() {
                         <span className="metric-value">{formatDuration(oldestItemDuration)}</span>
                         <span className="metric-label">Maior Tempo</span>
                     </div>
+                    <div className="metric-card buffer-card">
+                        <div className="buffer-count">
+                            <span>RTS:</span>
+                            <span>{bufferCounts.RTS}</span>
+                        </div>
+                        <div className="buffer-count">
+                            <span>EHA:</span>
+                            <span>{bufferCounts.EHA}</span>
+                        </div>
+                        <div className="buffer-count">
+                            <span>SALVADOS:</span>
+                            <span>{bufferCounts.SAL}</span>
+                        </div>
+                    </div>
                 </section>
 
                 <section className="fifo-list">
-                    <header className="fifo-list-header with-actions">
+                    {/* A classe 'with-actions' é adicionada apenas se NÃO for convidado */}
+                    <header className={`fifo-list-header ${!isGuest ? 'with-actions' : ''}`}>
                         <span>ID</span>
                         <span>BUFFER</span>
                         <span>RUA</span>
                         <span>DURAÇÃO</span>
-                        <span>AÇÕES</span>
+                        {/* A coluna de cabeçalho 'AÇÕES' é renderizada apenas se NÃO for convidado */}
+                        {!isGuest && <span>AÇÕES</span>}
                     </header>
                     <div className="fifo-list-body">
                         {queue.length > 0 ? queue.map(item => {
                             const entryTimestamp = new Date(item.EntryTimestamp).getTime();
                             const durationSeconds = Math.floor((syncedTime - entryTimestamp) / 1000);
                             return (
-                                <div className="fifo-list-item with-actions" key={item.ID}>
+                                // A classe 'with-actions' é adicionada apenas se NÃO for convidado
+                                <div className={`fifo-list-item ${!isGuest ? 'with-actions' : ''}`} key={item.ID}>
                                     <span>{item.TrackingID}</span>
                                     <span>{item.Buffer}</span>
                                     <span>{item.Rua}</span>
                                     <span>{formatDuration(durationSeconds)}</span>
-                                    <div className="action-buttons-cell">
-                                        {hasPermission('MOVE_PACKAGE') && (
-                                            <button onClick={() => openMoveModal(item)} className="move-btn">
-                                                Mover
-                                            </button>
-                                        )}
-                                    </div>
+                                    {/* A célula de ações é renderizada apenas se NÃO for convidado */}
+                                    {!isGuest && (
+                                        <div className="action-buttons-cell">
+                                            {hasPermission('MOVE_PACKAGE') && (
+                                                <button onClick={() => openMoveModal(item)} className="move-btn">
+                                                    Mover
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         }) : (
-                             <p className="empty-queue-message">A fila está vazia.</p>
+                            <p className="empty-queue-message">A fila está vazia.</p>
                         )}
                     </div>
                 </section>
 
-                {hasPermission('MANAGE_FIFO') && (
+                {!isGuest && hasPermission('MANAGE_FIFO') && (
                     <section className="actions-grid">
                         <button className="action-button entry" onClick={() => setEntryModalOpen(true)}>ENTRADA</button>
                         <button className="action-button exit" onClick={() => setExitModalOpen(true)}>SAÍDA</button>
@@ -172,12 +195,17 @@ function DashboardPage() {
                 )}
 
                 <div className="admin-nav-buttons">
-                    {hasPermission('VIEW_LOGS') && (
+                    {!isGuest && hasPermission('GENERATE_QR_CODES') && (
+                        <button onClick={() => navigate('/qrcode-generator')} className="admin-nav-button">
+                            GERAR QR CODES
+                        </button>
+                    )}
+                    {!isGuest && hasPermission('VIEW_LOGS') && (
                         <button onClick={() => navigate('/logs')} className="admin-nav-button">
                             VER LOGS DE ATIVIDADE
                         </button>
                     )}
-                    {hasPermission('VIEW_USERS') && (
+                    {!isGuest && hasPermission('VIEW_USERS') && (
                         <button onClick={() => navigate('/management')} className="admin-nav-button">
                             PAINEL DE GESTÃO
                         </button>

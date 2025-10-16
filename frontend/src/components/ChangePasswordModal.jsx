@@ -34,8 +34,16 @@ function ChangePasswordModal({ isOpen, onClose }) {
 
     if (!isOpen) return null;
 
+    // --- NOVA LÓGICA ---
+    const handleOverlayClick = (e) => {
+        // Fecha o modal apenas se o clique for diretamente no overlay
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onMouseDown={handleOverlayClick}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2>Alterar Senha</h2>

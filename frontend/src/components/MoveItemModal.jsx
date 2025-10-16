@@ -8,7 +8,7 @@ function MoveItemModal({ isOpen, onClose, onSuccess, item }) {
 
     useEffect(() => {
         if (item) {
-            setNewRua(item.Rua); // Preenche o campo com a rua atual
+            setNewRua(item.Rua);
         }
     }, [item]);
 
@@ -28,8 +28,15 @@ function MoveItemModal({ isOpen, onClose, onSuccess, item }) {
 
     if (!isOpen || !item) return null;
 
+    // --- NOVA LÓGICA ---
+    const handleOverlayClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onMouseDown={handleOverlayClick}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2>Mover Item: {item.TrackingID}</h2>

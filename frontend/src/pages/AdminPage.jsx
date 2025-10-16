@@ -36,8 +36,14 @@ const CreateUserModal = ({ isOpen, onClose, onSuccess, roles, actingUserRole }) 
 
     if (!isOpen) return null;
 
+ const handleOverlayClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onMouseDown={handleOverlayClick}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2>Criar Novo Utilizador</h2>
@@ -100,8 +106,14 @@ const EditUserModal = ({ isOpen, onClose, onSuccess, user, roles }) => {
 
     if (!isOpen || !user) return null;
 
+      const handleOverlayClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onMouseDown={handleOverlayClick}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2>Editar Utilizador: {user.Username.toUpperCase()}</h2>
@@ -147,8 +159,15 @@ const ResetPasswordModal = ({ isOpen, onClose, user }) => {
         } 
     }; 
     if (!isOpen || !user) return null; 
+
+        const handleOverlayClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onMouseDown={handleOverlayClick}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2>Redefinir Senha de: {user.Username.toUpperCase()}</h2>

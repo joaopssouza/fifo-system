@@ -32,6 +32,15 @@ const styles = {
     errorMessage: {
         color: 'var(--color-accent-red)',
         marginTop: '1rem',
+    },
+    guestLink: {
+        background: 'none',
+        border: 'none',
+        color: 'var(--color-secondary)',
+        textDecoration: 'underline',
+        cursor: 'pointer',
+        marginTop: '1.5rem',
+        fontSize: '0.9rem'
     }
 };
 
@@ -53,6 +62,11 @@ function LoginPage() {
             setError('Usuário ou senha inválidos.');
             console.error(err);
         }
+    };
+
+    const handleGuestLogin = () => {
+        auth.loginAsGuest();
+        navigate('/');
     };
 
     return (
@@ -80,7 +94,11 @@ function LoginPage() {
                 </button>
             </form>
 
-            {error && <p style={styles.errorMessage}>{error}</p>}
+            <button onClick={handleGuestLogin} style={styles.guestLink}>
+                Entrar como convidado
+            </button>
+            
+            {error && <p className="error-message">{error}</p>}
         </div>
     );
 }

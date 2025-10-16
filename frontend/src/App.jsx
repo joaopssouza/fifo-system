@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import LogsPage from './pages/LogsPage';
 import AdminPage from './pages/AdminPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import QRCodePage from './pages/QRCodePage';
 
 function App() {
     return (
@@ -33,6 +34,10 @@ function App() {
                     {/* Rota de Gestão, requer a permissão 'VIEW_USERS' */}
                     <Route element={<ProtectedRoute requiredPermission="VIEW_USERS" />}>
                         <Route path="/management" element={<AdminPage />} />
+                    </Route>
+                    
+                    <Route element={<ProtectedRoute requiredPermission="GENERATE_QR_CODES" />}>
+                        <Route path="/qrcode-generator" element={<QRCodePage />} />
                     </Route>
                 </Routes>
             </WebSocketProvider>

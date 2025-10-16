@@ -63,40 +63,63 @@ function LogsPage() {
                 <button onClick={() => navigate('/')} className="back-button">Voltar ao Dashboard</button>
             </header>
 
+            {/* --- PAINEL DE FILTROS MODIFICADO --- */}
             <div className="filters-panel">
-                <input
-                    type="text"
-                    name="username"
-                    placeholder="Filtrar por utilizador..."
-                    value={filters.username}
-                    onChange={handleFilterChange}
-                />
-                <input
-                    type="text"
-                    name="fullname"
-                    placeholder="Filtrar por nome completo..."
-                    value={filters.fullname}
-                    onChange={handleFilterChange}
-                />
-                <select name="action" value={filters.action} onChange={handleFilterChange}>
-                    <option value="">Todas as Ações</option>
-                    <option value="ENTRADA">Entrada</option>
-                    <option value="SAIDA">Saída</option>
-                </select>
-                <input
-                    type="date"
-                    name="startDate"
-                    value={filters.startDate}
-                    onChange={handleFilterChange}
-                />
-                <input
-                    type="date"
-                    name="endDate"
-                    value={filters.endDate}
-                    onChange={handleFilterChange}
-                />
+                <div className="input-with-label">
+                    <label htmlFor="username">Filtrar por utilizador</label>
+                    <input
+                        id="username"
+                        type="text"
+                        name="username"
+                        placeholder="Digite o nome de utilizador..."
+                        value={filters.username}
+                        onChange={handleFilterChange}
+                    />
+                </div>
+                <div className="input-with-label">
+                    <label htmlFor="fullname">Filtrar por nome completo</label>
+                    <input
+                        id="fullname"
+                        type="text"
+                        name="fullname"
+                        placeholder="Digite o nome completo..."
+                        value={filters.fullname}
+                        onChange={handleFilterChange}
+                    />
+                </div>
+                <div className="input-with-label">
+                    <label htmlFor="action">Filtrar por ação</label>
+                    <select id="action" name="action" value={filters.action} onChange={handleFilterChange}>
+                        <option value="">Todas as Ações</option>
+                        <option value="ENTRADA">Entrada</option>
+                        <option value="SAIDA">Saída</option>
+                        <option value="MOVIMENTACAO">Movimentação</option>
+                    </select>
+                </div>
+                <div className="input-with-label">
+                    <label htmlFor="startDate">Data de Início</label>
+                    <input
+                        id="startDate"
+                        type="date"
+                        name="startDate"
+                        value={filters.startDate}
+                        onChange={handleFilterChange}
+                    />
+                </div>
+                <div className="input-with-label">
+                    <label htmlFor="endDate">Data de Fim</label>
+                    <input
+                        id="endDate"
+                        type="date"
+                        name="endDate"
+                        value={filters.endDate}
+                        onChange={handleFilterChange}
+                    />
+                </div>
                 <button onClick={clearFilters} className="clear-filters-button">Limpar Filtros</button>
             </div>
+            {/* --- FIM DA MODIFICAÇÃO --- */}
+
 
             <div className="table-container">
                 <table className="logs-table">

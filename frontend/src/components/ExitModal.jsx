@@ -20,9 +20,20 @@ function ExitModal({ isOpen, onClose, onSuccess, availableIDs }) {
     };
 
     if (!isOpen) return null;
+    
+    const handleTagClick = (id) => {
+        setTrackingId(id);
+    };
+
+    // --- NOVA LÓGICA ---
+    const handleOverlayClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onMouseDown={handleOverlayClick}>
             <div className="modal-content" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2>Saída de Item</h2>
@@ -34,8 +45,8 @@ function ExitModal({ isOpen, onClose, onSuccess, availableIDs }) {
                     <input id="exitTrackingId" type="text" value={trackingId} onChange={e => setTrackingId(e.target.value)} placeholder="Digite o ID ou escaneie" required />
 
                     <div className="available-ids">
-                        <span>IDs disponíveis:</span>
-                        {availableIDs.slice(0, 5).map(id => <span key={id} className="id-tag">{id}</span>)}
+                        <span>IDs sugeridos:</span>
+                        {availableIDs.slice(0, 4).map(id => <span key={id} className="id-tag" onClick={() => handleTagClick(id)}>{id}</span>)}
                     </div>
 
                     <button type="submit" className="modal-submit-button red">Confirmar Saída</button>
