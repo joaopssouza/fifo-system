@@ -25,7 +25,7 @@ FROM nginx:stable-alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Expõe a porta 80, que é a porta padrão do Nginx
-EXPOSE 80
+EXPOSE 10000
 
 # Quando o contêiner iniciar, o Nginx iniciará automaticamente para servir nossos arquivos.
 CMD ["nginx", "-g", "daemon off;"]
