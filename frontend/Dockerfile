@@ -24,8 +24,17 @@ FROM nginx:stable-alpine
 # Copia os arquivos estáticos gerados no build do React para a pasta que o Nginx serve
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Expõe a porta 80, que é a porta padrão do Nginx
+# --- INÍCIO DAS MUDANÇAS ---
+
+# Remove a configuração padrão do Nginx que usa a porta 80
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copia o nosso novo ficheiro de configuração para o template do Nginx
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+# Expõe a porta 10000 (o padrão da Render)
 EXPOSE 10000
 
-# Quando o contêiner iniciar, o Nginx iniciará automaticamente para servir nossos arquivos.
-CMD ["nginx", "-g", "daemon off;"]
+# Este comando substitui a variável ${PORT} pela porta real e inicia o Nginx
+CMD ["/bin/sh", "-c", "envsubst < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+# --- FIM DAS MUDANÇAS ---
