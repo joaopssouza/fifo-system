@@ -1,10 +1,8 @@
 // src/services/api.js
 import axios from 'axios';
 
-const baseUrl = process.env.BASEURL;
-
 const api = axios.create({
-    baseUrl, // A URL base do nosso backend
+    baseURL: import.meta.env.VITE_API_BASE_URL,
 });
 
 export default api;
