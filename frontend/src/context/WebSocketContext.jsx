@@ -10,14 +10,18 @@ export const WebSocketProvider = ({ children }) => {
 
     useEffect(() => {
         if (token && user && (user.role === 'admin' || user.role === 'leader')) {
-            const wsUrl = `ws://localhost:8080/api/ws?token=${token}`;
+            const baseURL = api.defaults.baseURL;
+
+            // 3. Construa a URL do WebSocket de forma dinâmica
+            const wsProtocol = baseURL.startsWith('https://') ? 'wss://' : 'ws://';
+            const wsHost = baseURL.replace(/^https?:\/\//, '');
+            const wsUrl = `${wsProtocol}${wsHost}/api/ws?token=${token}`; 
             const ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
-                console.log("Conexão WebSocket Estabelecida (WebSocketContext)");
-                // A conexão está aberta. Agora, pedimos ativamente a lista de utilizadores.
+                console.log("Conexão WebSocket Estabelecida:", wsUrl);
             };
-            
+
             ws.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
