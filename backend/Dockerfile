@@ -29,8 +29,5 @@ WORKDIR /
 # Isso resulta em uma imagem final extremamente pequena.
 COPY --from=builder /fifo-backend /fifo-backend
 
-# Expõe a porta que a nossa API usa dentro do contêiner.
-EXPOSE 8080
-
 # O comando que será executado quando o contêiner iniciar.
 CMD ["/fifo-backend"]

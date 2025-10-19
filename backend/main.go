@@ -9,8 +9,10 @@ import (
 	"fifo-system/backend/models"
 	"fifo-system/backend/services"
 	"fifo-system/backend/websocket"
+	"fmt" // Adicionado para formatação de strings
 	"log"
 	"net/http"
+	"os" // Adicionado para ler variáveis de ambiente
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -36,11 +38,23 @@ func main() {
 	go websocket.H.Run()
 	r := gin.Default()
 
-	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowAllOrigins = true
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
+	// --- CONFIGURAÇÃO DE CORS DINÂMICA E SEGURA ---
+	// Lê a URL do frontend a partir da variável de ambiente para maior segurança.
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		// Valor padrão para ambiente de desenvolvimento local.
+		// Altere a porta se seu frontend React/Vite rodar em outra.
+		frontendURL = "http://localhost:5173"
+	}
+
+	corsConfig := cors.Config{
+		AllowOrigins:     []string{frontendURL},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
+		AllowCredentials: true,
+	}
 	r.Use(cors.New(corsConfig))
+	// --- FIM DA CONFIGURAÇÃO DE CORS ---
 
 	// --- ROTAS PÚBLICAS ---
 	// Estas rotas NÃO passam pelo middleware de autenticação.
@@ -72,7 +86,7 @@ func main() {
 		api.POST("/qrcodes/confirm", middleware.RequirePermission("GENERATE_QR_CODES"), controllers.ConfirmQRCodeData)
 		api.GET("/qrcodes/find/:trackingId", middleware.RequirePermission("GENERATE_QR_CODES"), controllers.FindQRCodeData)
 
-		management := api.Group("/management") // Corrigido para 'api.Group' para herdar a autenticação
+		management := api.Group("/management")
 		{
 			management.GET("/roles", middleware.RequirePermission("EDIT_USER"), controllers.GetRoles)
 			management.POST("/users", middleware.RequirePermission("CREATE_USER"), controllers.CreateUser)
@@ -83,11 +97,17 @@ func main() {
 		}
 	}
 
-	log.Println("Iniciando o servidor na porta 8080...")
-	r.Run(":8080")
+	// --- INICIALIZAÇÃO DO SERVIDOR COM PORTA CONFIGURÁVEL ---
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Porta padrão para ambiente local
+	}
+	address := fmt.Sprintf(":%s", port)
+	log.Printf("Iniciando o servidor em %s, permitindo requisições de %s", address, frontendURL)
+	r.Run(address)
 }
 
-// ... (funções seedAdminUser e seedData permanecem as mesmas)
+// ... (suas funções seedAdminUser e seedData permanecem inalteradas)
 func seedAdminUser() {
 	var userCount int64
 	initializers.DB.Model(&models.User{}).Count(&userCount)
@@ -100,10 +120,10 @@ func seedAdminUser() {
 
 		hash, _ := bcrypt.GenerateFromPassword([]byte("admin"), 10)
 		admin := models.User{
-			Username: "admin",
+			Username:     "admin",
 			FullName:     "Administrador do Sistema",
 			PasswordHash: string(hash),
-			Sector:       "ADMINISTRAÇÃO", 
+			Sector:       "ADMINISTRAÇÃO",
 			RoleID:       adminRole.ID,
 		}
 		initializers.DB.Create(&admin)
