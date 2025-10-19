@@ -10,7 +10,7 @@ import LogsPage from './pages/LogsPage';
 import AdminPage from './pages/AdminPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import QRCodePage from './pages/QRCodePage';
-import { SpeedInsights } from "@vercel/speed-insights/next"
+import { SpeedInsights } from "@vercel/speed-insights/react"
 
 function App() {
     return (
