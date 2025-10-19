@@ -4,9 +4,8 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-server: {
-    // Remova as configurações de host e port para usar os padrões do Docker
-    // host: 'localhost',
-    // port: 80,
+  server: {
+    host: '192.168.1.3',
+    port: 5173,
   },
 })

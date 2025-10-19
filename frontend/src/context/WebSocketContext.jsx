@@ -10,14 +10,16 @@ export const WebSocketProvider = ({ children }) => {
 
     useEffect(() => {
         if (token && user && (user.role === 'admin' || user.role === 'leader')) {
-            const wsUrl = `ws://localhost:8080/api/ws?token=${token}`;
-            const ws = new WebSocket(wsUrl);
+            const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+            const wsURL = baseURL.replace(/^http/, 'ws'); // Irá gerar wss://fifo-system.onrender.com
+            const finalWsUrl = `${wsURL}/api/ws?token=${token}`;
+            const ws = new WebSocket(finalWsUrl);
 
             ws.onopen = () => {
                 console.log("Conexão WebSocket Estabelecida (WebSocketContext)");
-                // A conexão está aberta. Agora, pedimos ativamente a lista de utilizadores.
+                // A conexão está aberta. Agora, pode-se pedir ativamente a lista de utilizadores, se necessário.
             };
-            
+
             ws.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
