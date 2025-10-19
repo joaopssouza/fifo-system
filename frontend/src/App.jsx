@@ -10,6 +10,7 @@ import LogsPage from './pages/LogsPage';
 import AdminPage from './pages/AdminPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import QRCodePage from './pages/QRCodePage';
+import { SpeedInsights } from "@vercel/speed-insights/next"
 
 function App() {
     return (
@@ -40,6 +41,7 @@ function App() {
                         <Route path="/qrcode-generator" element={<QRCodePage />} />
                     </Route>
                 </Routes>
+                <SpeedInsights />
             </WebSocketProvider>
         </AuthProvider>
     );
