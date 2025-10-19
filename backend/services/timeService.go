@@ -2,36 +2,24 @@
 package services
 
 import (
-	"encoding/json"
-	"net/http"
+	"log"
 	"time"
 )
 
-// Estrutura para corresponder à resposta da API WorldTime
-type WorldTimeResponse struct {
-	UTCDateTime string `json:"utc_datetime"`
+var brasiliaLocation *time.Location
+
+func init() {
+	// Carrega a localização do fuso horário de São Paulo (que rege o horário de Brasília)
+	// uma única vez quando a aplicação inicia, para máxima performance.
+	loc, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		log.Fatalf("FATAL: Falha ao carregar o fuso horário 'America/Sao_Paulo': %v", err)
+	}
+	brasiliaLocation = loc
 }
 
-// GetWorldTime busca a hora UTC atual de uma API externa.
-func GetWorldTime() (time.Time, error) {
-	resp, err := http.Get("http://worldtimeapi.org/api/timezone/Etc/UTC")
-	if err != nil {
-		// Se a API externa falhar, usamos o tempo do servidor como fallback
-		// para manter o sistema a funcionar, mas registamos o erro.
-		return time.Now().UTC(), err
-	}
-	defer resp.Body.Close()
-
-	var worldTime WorldTimeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&worldTime); err != nil {
-		return time.Now().UTC(), err
-	}
-
-	// Faz o parse da data retornada pela API
-	parsedTime, err := time.Parse(time.RFC3339, worldTime.UTCDateTime)
-	if err != nil {
-		return time.Now().UTC(), err
-	}
-
-	return parsedTime, nil
+// GetBrasiliaTime retorna a hora atual, sempre no fuso horário de Brasília.
+// Esta função é agora a fonte oficial de tempo para todas as operações do sistema.
+func GetBrasiliaTime() time.Time {
+	return time.Now().In(brasiliaLocation)
 }

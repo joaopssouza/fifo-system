@@ -2,6 +2,7 @@
 package controllers
 
 import (
+	"errors"
 	"fifo-system/backend/config"
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
@@ -10,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"errors"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -211,13 +211,13 @@ func AdminUpdateUser(c *gin.Context) {
 	targetUserIDStr := c.Param("id")
 	targetUserID, _ := strconv.ParseUint(targetUserIDStr, 10, 32)
 
-    // --- LÓGICA DE VALIDAÇÃO REATORIZADA ---
+	// --- LÓGICA DE VALIDAÇÃO REATORIZADA ---
 	targetUser, err := validateAdminAction(actingUser, uint(targetUserID))
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
-    // --- FIM DA REATORIZAÇÃO ---
+	// --- FIM DA REATORIZAÇÃO ---
 
 	var body struct {
 		FullName string `json:"fullName"`
@@ -242,13 +242,13 @@ func AdminResetPassword(c *gin.Context) {
 	targetUserIDStr := c.Param("id")
 	targetUserID, _ := strconv.ParseUint(targetUserIDStr, 10, 32)
 
-    // --- LÓGICA DE VALIDAÇÃO REATORIZADA ---
+	// --- LÓGICA DE VALIDAÇÃO REATORIZADA ---
 	targetUser, err := validateAdminAction(actingUser, uint(targetUserID))
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
-    // --- FIM DA REATORIZAÇÃO ---
+	// --- FIM DA REATORIZAÇÃO ---
 
 	var body struct {
 		NewPassword string `json:"newPassword" binding:"required"`

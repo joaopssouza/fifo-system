@@ -3,7 +3,6 @@ package middleware
 
 import (
 	"fifo-system/backend/config"
-	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
 	"fmt"
 	"net/http"
@@ -12,11 +11,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 )
 
 func RequireAuth(c *gin.Context) {
 	var tokenString string
-
 	authHeader := c.GetHeader("Authorization")
 	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
@@ -46,15 +45,23 @@ func RequireAuth(c *gin.Context) {
 			return
 		}
 
-		var user models.User
-		// --- CORREÇÃO CRÍTICA ---
-		// Recarrega sempre os dados do utilizador a partir do banco de dados para garantir que estão atualizados,
-		// especialmente após migrações ou alterações de dados.
-		if err := initializers.DB.Preload("Role.Permissions").First(&user, claims["sub"]).Error; err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Utilizador não encontrado"})
-			return
+		permissionsInterface := claims["permissions"].([]interface{})
+		permissions := make([]models.Permission, len(permissionsInterface))
+		for i, p := range permissionsInterface {
+			permissions[i] = models.Permission{Name: p.(string)}
 		}
 
+		user := models.User{
+			Model: gorm.Model{
+				ID: uint(claims["sub"].(float64)),
+			},
+			Username: claims["user"].(string),
+			FullName: claims["fullName"].(string),
+			Role: models.Role{
+				Name:        claims["role"].(string),
+				Permissions: permissions,
+			},
+		}
 		c.Set("user", user)
 		c.Next()
 	} else {

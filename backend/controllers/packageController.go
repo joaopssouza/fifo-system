@@ -5,8 +5,7 @@ import (
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
 	"fifo-system/backend/services"
-	"fmt"
-	"log" // Adicionado para logar o aviso
+	"fmt" // Adicionado para logar o aviso
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -29,10 +28,7 @@ func PackageEntry(c *gin.Context) {
 		err := tx.First(&pkg, "tracking_id = ?", body.TrackingID).Error
 
 		// Obtém a hora atual para a transação.
-		currentTime, timeErr := services.GetWorldTime()
-		if timeErr != nil {
-			log.Printf("AVISO: Falha ao buscar a hora mundial, usando a hora do servidor: %v", timeErr)
-		}
+		currentTime := services.GetBrasiliaTime()
 
 		// CASO 1: O QR Code NÃO EXISTE no banco de dados (é um código antigo/legado).
 		if err == gorm.ErrRecordNotFound {

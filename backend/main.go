@@ -13,7 +13,6 @@ import (
 	"log"
 	"net/http"
 	"os" // Adicionado para ler variáveis de ambiente
-	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -60,11 +59,7 @@ func main() {
 	// Estas rotas NÃO passam pelo middleware de autenticação.
 	r.POST("/login", controllers.Login)
 	r.GET("/public/time", func(c *gin.Context) {
-		serverTime, err := services.GetWorldTime()
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"serverTime": time.Now().UTC()})
-			return
-		}
+		serverTime := services.GetBrasiliaTime()
 		c.JSON(http.StatusOK, gin.H{"serverTime": serverTime})
 	})
 	r.GET("/public/fifo-queue", controllers.GetFIFOQueue)
