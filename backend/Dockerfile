@@ -22,6 +22,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /fifo-backend .
 # Usa uma imagem base mínima. Alpine é pequena e segura.
 FROM alpine:latest
 
+# Instala o pacote 'tzdata' que contém as informações de fuso horário
+# para que o Go possa encontrar "America/Sao_Paulo".
+RUN apk add --no-cache tzdata
+
 # Define o diretório de trabalho
 WORKDIR /
 
