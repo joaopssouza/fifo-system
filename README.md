@@ -146,4 +146,8 @@ Ao iniciar a aplicação pela primeira vez com uma base de dados vazia, o sistem
   * **Utilizador:** `admin`
   * **Senha:** `admin`
 
+<<<<<<< HEAD
 **Aviso de Segurança:** É crucial que altere esta senha padrão imediatamente após o seu primeiro login, utilizando a funcionalidade "Alterar Senha" no dashboard.
+=======
+**Aviso de Segurança:** É crucial que altere esta senha padrão imediatamente após o seu primeiro login, utilizando a funcionalidade "Alterar Senha" no dashboard.
+>>>>>>> b0fd151a04e467687f1e92bf5649753fd03d3af2
