@@ -1,2 +1,10 @@
 # Arquivos de config
 .env
+
+# Arquivos de log
+*.log
+*.log.*
+
+# Arquivos de ferramentas de IDE
+.vscode/
+.idea/
