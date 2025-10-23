@@ -67,10 +67,12 @@ button {
 /* 4. Estilos de Container Padrão */
 .app-container {
   width: 100%;
-  max-width: 400px;
   margin: auto;
 }
 
+.app-container form{
+  max-width: 400px;
+}
 /* Dashboard Layout */
 .dashboard-container {
   max-width: 500px;
@@ -325,10 +327,6 @@ button {
   opacity: 0.8;
 }
 
-/* Logs Page Layout */
-.logs-container {
-  max-width: 900px;
-}
 
 .logs-header {
   display: flex;
@@ -351,11 +349,13 @@ button {
 }
 
 .table-container {
-  overflow-x: auto;
+  display: block; /* Garante que o container se comporte como um bloco */
+  width: 100%;    /* Faz o container ocupar toda a largura disponível */
+  overflow-x: auto; /* Adiciona a barra de rolagem horizontal quando o conteúdo ultrapassa */
+  -webkit-overflow-scrolling: touch; /* Melhora a fluidez da rolagem em dispositivos iOS */
 }
 
 .logs-table, .admin-table {
-  width: 100%;
   border-collapse: collapse;
   margin-top: 1rem;
   font-size: 0.9rem;
@@ -470,7 +470,8 @@ button {
 }
 
 .admin-container {
-  max-width: 900px;
+  padding: 1rem; /* <-- ADICIONADO */
+
 }
 
 .admin-header {
@@ -806,15 +807,16 @@ button {
 
   body {
     padding: 1rem;
+    max-width: 400px;
   }
 
   .app-container,
   .dashboard-container,
   .logs-container,
   .admin-container {
-    max-width: 100%;
-    width: 100%;
+    padding: 1rem;
   }
+
 
   /* --- AJUSTES DO DASHBOARD --- */
   .dashboard-header {
@@ -847,10 +849,6 @@ button {
   .admin-header .back-button {
     width: 100%;
     text-align: center;
-  }
-  
-  .filters-panel {
-      grid-template-columns: 1fr;
   }
 
   .confirmation-actions {
