@@ -30,8 +30,6 @@ body {
   color: var(--color-primary);
   display: flex;
   justify-content: center;
-  padding: 2rem;
-  min-height: 100vh;
 }
 
 /* 3. Estilos de Formulário Padrão */
@@ -638,6 +636,7 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
+  max-width: 600px;
 }
 
 .controls-panel {
@@ -947,5 +946,35 @@ button {
   }
   .dashboard-filter-select {
     font-size: 1rem; /* Aumenta um pouco em mobile para facilitar o toque */
+  }
+}
+
+/* Adicione estas regras ao final do seu arquivo src/index.css */
+
+/* Container principal que cresce para empurrar o footer */
+.app-content-wrapper {
+  flex-grow: 1; /* Faz este div ocupar o espaço disponível */
+  padding: 2rem; /* Reaplica o padding que estava no body */
+  display: flex; /* Ajuda a centralizar o conteúdo interno */
+  justify-content: center; /* Centraliza o conteúdo (login, dashboard, etc.) */
+}
+
+/* Estilos do Rodapé */
+.app-footer {
+  width: 100%;
+  text-align: center;
+  padding: 1rem 0; /* Espaçamento interno */
+  margin-top: auto; /* Garante que fique no fim, mesmo com pouco conteúdo */
+  color: var(--color-secondary);
+  font-size: 0.8rem;
+}
+
+/* Ajuste para mobile (se o padding do wrapper mudar) */
+@media (max-width: 768px) {
+  .app-content-wrapper {
+    padding: 1rem; /* Ajusta padding para mobile */
+  }
+  .app-footer {
+    padding: 0.75rem 0;
   }
 }

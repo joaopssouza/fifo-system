@@ -42,6 +42,9 @@ function App() {
                     </Route>
                 </Routes>
                 <SpeedInsights />
+                <footer className="app-footer">
+                    Criado por Joao Paulo S. S. (Ops62094)
+                </footer>
             </WebSocketProvider>
         </AuthProvider>
     );
