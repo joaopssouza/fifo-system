@@ -1,51 +1,108 @@
 // src/context/WebSocketContext.jsx
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 
 const WebSocketContext = createContext();
 
 export const WebSocketProvider = ({ children }) => {
-    const { token, user } = useAuth();
+    const { token, user, isGuest } = useAuth();
     const [onlineUsers, setOnlineUsers] = useState([]);
+    const [wsQueue, setWsQueue] = useState([]);
+    const [wsBacklog, setWsBacklog] = useState(0);
+    const [wsBufferCounts, setWsBufferCounts] = useState({ RTS: 0, EHA: 0, SAL: 0 });
+    const [isConnected, setIsConnected] = useState(false);
 
     useEffect(() => {
-        if (token && user && (user.role === 'admin' || user.role === 'leader')) {
+        let ws = null;
+
+        // Se houver token (utilizador autenticado)
+        if (token) {
             const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-            const wsURL = baseURL.replace(/^http/, 'ws'); // Irá gerar wss://fifo-system.onrender.com
+            const wsURL = baseURL.replace(/^http/, 'ws');
             const finalWsUrl = `${wsURL}/api/ws?token=${token}`;
-            const ws = new WebSocket(finalWsUrl);
+
+            console.log("Tentando conectar WebSocket (Autenticado):", finalWsUrl);
+            ws = new WebSocket(finalWsUrl);
 
             ws.onopen = () => {
-                console.log("Conexão WebSocket Estabelecida (WebSocketContext)");
-                // A conexão está aberta. Agora, pode-se pedir ativamente a lista de utilizadores, se necessário.
+                console.log("Conexão WebSocket Estabelecida (Autenticado)");
+                setIsConnected(true);
             };
 
             ws.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
-                    // A lógica de receção de dados não muda.
-                    // Ela receberá tanto a resposta ao nosso pedido como as atualizações de outros clientes.
+                    console.log("Mensagem WS recebida:", message.type);
+
                     if (message.type === 'online_users') {
-                        setOnlineUsers(message.data || []);
+                        if (user && (user.role === 'admin' || user.role === 'leader')) {
+                            setOnlineUsers(message.data || []);
+                        }
+                    } else if (message.type === 'queue_update') {
+                        setWsQueue(message.queue || []);
+                        setWsBacklog(message.backlog || 0);
+                        setWsBufferCounts(message.bufferCounts || { RTS: 0, EHA: 0, SAL: 0 });
                     }
                 } catch (e) {
                     console.error("Erro ao processar mensagem do WebSocket:", e);
                 }
             };
 
-            ws.onclose = () => console.log("Conexão WebSocket Fechada (WebSocketContext)");
-            ws.onerror = (error) => console.error("Erro no WebSocket:", error);
-
-            return () => {
-                ws.close();
+            ws.onclose = (event) => {
+                console.log("Conexão WebSocket Fechada (Autenticado)", event.reason);
+                setIsConnected(false);
+                // Limpa os dados ao desconectar
+                setOnlineUsers([]);
+                setWsQueue([]);
+                setWsBacklog(0);
+                setWsBufferCounts({ RTS: 0, EHA: 0, SAL: 0 });
             };
-        } else {
+            ws.onerror = (error) => {
+                console.error("Erro no WebSocket (Autenticado):", error);
+                setIsConnected(false);
+            };
+
+        // --- LÓGICA PARA CONVIDADO ---
+        } else if (isGuest) {
+            console.log("Modo Convidado: WebSocket não será conectado. Simulando estado 'conectado'.");
+            // Limpa estados que dependem do WS
             setOnlineUsers([]);
+            setWsQueue([]);
+            setWsBacklog(0);
+            setWsBufferCounts({ RTS: 0, EHA: 0, SAL: 0 });
+            // Define como "conectado" para que o Dashboard não mostre a mensagem
+            // e use os dados da API inicial.
+            setIsConnected(false); // <<-- SIMULA CONEXÃO PARA CONVIDADO
+
+        // Se não for autenticado nem convidado (ex: na página de login)
+        } else {
+            setIsConnected(false);
+            setOnlineUsers([]);
+            setWsQueue([]);
+            setWsBacklog(0);
+            setWsBufferCounts({ RTS: 0, EHA: 0, SAL: 0 });
         }
-    }, [token, user]);
+
+        // Função de limpeza
+        return () => {
+            if (ws) {
+                console.log("Fechando conexão WebSocket...");
+                ws.close();
+                setIsConnected(false); // Garante reset ao sair
+            }
+        };
+    }, [token, isGuest, user]); // Depende de token, isGuest e user
+
+    const value = useMemo(() => ({
+        onlineUsers,
+        wsQueue,
+        wsBacklog,
+        wsBufferCounts,
+        isConnected
+    }), [onlineUsers, wsQueue, wsBacklog, wsBufferCounts, isConnected]);
 
     return (
-        <WebSocketContext.Provider value={{ onlineUsers }}>
+        <WebSocketContext.Provider value={value}>
             {children}
         </WebSocketContext.Provider>
     );
@@ -54,4 +111,3 @@ export const WebSocketProvider = ({ children }) => {
 export const useWebSocket = () => {
     return useContext(WebSocketContext);
 };
-

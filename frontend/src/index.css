@@ -115,31 +115,41 @@ button {
     border-color: var(--color-accent-red);
 }
 
-/* --- SEÇÃO DE MÉTRICAS CORRIGIDA --- */
+/* --- SEÇÃO DE MÉTRICAS ATUALIZADA (COMPACTA) --- */
 .metrics-grid {
   display: grid;
-  /* Cria 3 colunas de largura igual */
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 2rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem; /* Compacto */
+  margin-bottom: 1.5rem; /* Compacto */
 }
 
 .metric-card {
   background-color: var(--color-surface);
-  padding: 1.25rem; /* Reduzido levemente */
+  padding: 1rem; /* Compacto */
   border-radius: 8px;
   text-align: center;
 }
 
 .metric-value {
-  font-size: 1.8rem; /* Reduzido de 2rem */
+  font-size: 1.6rem; /* Compacto */
   font-weight: bold;
   display: block;
 }
 
+/* --- NOVO ESTILO (ID da Gaiola) --- */
+.metric-sub-label {
+  font-size: 1.1rem;
+  color: var(--color-primary);
+  font-weight: bold;
+  margin-top: 4px;
+  display: block;
+  min-height: 1.2em; /* Garante altura uniforme */
+}
+
 .metric-label {
-  font-size: 0.85rem; /* Reduzido levemente */
+  font-size: 0.8rem; /* Compacto */
   color: var(--color-secondary);
+  margin-top: 2px; /* Compacto */
 }
 
 .metric-card.buffer-card {
@@ -147,8 +157,8 @@ button {
     flex-direction: column;
     justify-content: center;
     align-items: stretch;
-    padding: 1rem 1.25rem;
-    gap: 0.5rem;
+    padding: 0.75rem 1rem; /* Compacto */
+    gap: 0.25rem; /* Compacto */
 }
 
 .buffer-count {
@@ -161,7 +171,7 @@ button {
 .buffer-count span:first-child {
     color: var(--color-secondary);
 }
-/* --- FIM DA CORREÇÃO --- */
+/* --- FIM DA ATUALIZAÇÃO --- */
 
 
 /* Lista FIFO */
@@ -171,12 +181,13 @@ button {
   border-radius: 8px;
 }
 
+/* --- LISTA COMPACTA --- */
 .fifo-list-header,
 .fifo-list-item {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1.2fr;
-  gap: 1rem;
-  padding: 0.30rem;
+  gap: 0.5rem; /* Compacto */
+  padding: 0.25rem 0.5rem; /* Compacto */
   font-weight: bold;
   text-align: center;
 }
@@ -192,10 +203,11 @@ button {
 .fifo-list-item {
   background-color: #2a2a2a;
   border-radius: 4px;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.15rem; /* Compacto */
   align-items: center;
   font-size: 0.9rem;
 }
+/* --- FIM DA ATUALIZAÇÃO --- */
 
 .fifo-list-item:last-child {
   margin-bottom: 0;
@@ -591,6 +603,34 @@ button {
   border-color: var(--color-accent-blue);
 }
 
+/* --- ESTILOS DO FILTRO DROPDOWN --- */
+.filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.filter-label {
+  font-size: 0.9rem;
+  color: var(--color-secondary);
+  white-space: nowrap;
+}
+
+.dashboard-filter-select {
+  /* Reutiliza estilos de input/select globais mas ajusta o tamanho */
+  width: 100%;
+  padding: 10px 14px; /* Mais compacto que o 'select' padrão */
+  background-color: #252525;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-primary);
+  font-size: 0.9rem; /* Mais compacto */
+  font-weight: bold;
+  margin-bottom: 0; /* Sobrescreve o 'select' global */
+}
+/* --- FIM DOS ESTILOS DE FILTRO --- */
+
 
 /* --- SEÇÃO DE QR CODE --- */
 .qr-page-container {
@@ -650,14 +690,14 @@ button {
 .a4-page {
   background: white;
   width: 21cm;
-  min-height: 29.7cm; 
+  min-height: 29.7cm;
   display: grid;
   grid-template-columns: repeat(3, 6cm);
   grid-template-rows: repeat(3, 9cm);
   justify-content: center;
   align-content: center;
-  gap: 5mm; 
-  padding: 3mm; 
+  gap: 5mm;
+  padding: 3mm;
   margin: 1rem auto;
   box-shadow: 0 0 10px rgba(0,0,0,0.5);
 }
@@ -807,7 +847,6 @@ button {
 
   body {
     padding: 1rem;
-    max-width: 400px;
   }
 
   .app-container,
@@ -815,6 +854,8 @@ button {
   .logs-container,
   .admin-container {
     padding: 1rem;
+    max-width: 98vw;
+    gap: 1rem;
   }
 
 
@@ -822,7 +863,6 @@ button {
   .dashboard-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 1rem;
   }
 
   .user-profile {
@@ -831,20 +871,40 @@ button {
   }
 
   .metrics-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
+
+  /* --- AJUSTE MÉTRICAS MOBILE (COMPACTO) --- */
+  .metric-value {
+    font-size: 1.3rem;
+  }
+  .metric-sub-label {
+    font-size: 0.9rem;
+    min-height: 1em;
+  }
+  .metric-label {
+    font-size: 0.75rem;
+  }
+  .metric-card.buffer-card {
+    padding: 0.5rem 0.75rem;
+  }
+  .buffer-count {
+    font-size: 0.9rem;
+  }
+  /* --- FIM AJUSTE MOBILE --- */
+
 
   .actions-grid {
     grid-template-columns: 1fr;
   }
-  
+
   /* --- AJUSTES DAS PÁGINAS DE GERENCIAMENTO --- */
   .logs-header, .admin-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 1rem;
   }
-  
+
   .logs-header .back-button,
   .admin-header .back-button {
     width: 100%;
@@ -854,7 +914,7 @@ button {
   .confirmation-actions {
       flex-direction: column;
   }
-  
+
   /* --- AJUSTES DAS LISTAS E TABELAS --- */
   .fifo-list-header,
   .fifo-list-item {
@@ -862,7 +922,7 @@ button {
     gap: 0.5rem;
     padding: 0.5rem 0.25rem;
   }
-  
+
   .fifo-list-header.with-actions,
   .fifo-list-item.with-actions {
       grid-template-columns: 1fr 1fr 1fr 1.2fr 0.8fr;
@@ -875,5 +935,17 @@ button {
 
   .printable-area {
       display: none;
+  }
+
+  /* --- AJUSTE FILTRO MOBILE --- */
+  .filter-controls {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .filter-label {
+    text-align: center;
+  }
+  .dashboard-filter-select {
+    font-size: 1rem; /* Aumenta um pouco em mobile para facilitar o toque */
   }
 }

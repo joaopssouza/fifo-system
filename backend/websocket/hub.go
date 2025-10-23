@@ -1,14 +1,18 @@
 package websocket
 
 import (
+	"database/sql" // <-- ADICIONAR IMPORT
 	"encoding/json"
+	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
 )
 
 // Client representa um utilizador conectado via WebSocket.
@@ -29,24 +33,28 @@ type Hub struct {
 	mu         sync.Mutex
 }
 
+// --- Estrutura para a mensagem de atualização da fila ---
+type QueueUpdateMessage struct {
+	Type         string           `json:"type"`
+	Queue        []models.Package `json:"queue"`
+	Backlog      int64            `json:"backlog"`
+	BufferCounts map[string]int64 `json:"bufferCounts"`
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// Para desenvolvimento, permite todas as origens.
-		// Em produção, deve restringir isto ao seu domínio de frontend.
 		return true
 	},
 }
 
-// H é a instância global do nosso Hub.
 var H = Hub{
 	clients:    make(map[*Client]bool),
 	register:   make(chan *Client),
 	unregister: make(chan *Client),
 }
 
-// Run inicia o processamento de eventos do Hub.
 func (h *Hub) Run() {
 	for {
 		select {
@@ -56,6 +64,7 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 			log.Printf("Cliente conectado: %s", client.Username)
 			h.broadcastOnlineUsers()
+			h.sendInitialQueueState(client)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -70,7 +79,31 @@ func (h *Hub) Run() {
 	}
 }
 
-// broadcastOnlineUsers envia a lista de utilizadores online para todos os admins e leaders conectados.
+func (h *Hub) sendInitialQueueState(client *Client) {
+	queue, backlog, bufferCounts := getCurrentQueueState()
+	messageData := QueueUpdateMessage{
+		Type:         "queue_update",
+		Queue:        queue,
+		Backlog:      backlog,
+		BufferCounts: bufferCounts,
+	}
+
+	message, err := json.Marshal(messageData)
+	if err != nil {
+		log.Printf("Erro ao serializar estado inicial da fila: %v", err)
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clients[client]; ok {
+		err := client.Conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			log.Printf("Erro ao enviar estado inicial da fila para %s: %v", client.Username, err)
+		}
+	}
+}
+
 func (h *Hub) broadcastOnlineUsers() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -92,22 +125,86 @@ func (h *Hub) broadcastOnlineUsers() {
 	})
 
 	for client := range h.clients {
-		// --- LÓGICA ATUALIZADA ---
-		// Agora, tanto 'admin' quanto 'leader' recebem a lista.
 		if client.Role == "admin" || client.Role == "leader" {
-			client.Conn.WriteMessage(websocket.TextMessage, message)
+			err := client.Conn.WriteMessage(websocket.TextMessage, message)
+			if err != nil {
+				log.Printf("Erro ao enviar lista de utilizadores online para %s: %v", client.Username, err)
+			}
 		}
 	}
 }
 
-// ServeWs lida com o upgrade de requisições HTTP para WebSocket.
-func ServeWs(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+func getCurrentQueueState() ([]models.Package, int64, map[string]int64) {
+	var packages []models.Package
+	var count int64
+	bufferCounts := make(map[string]int64)
+
+	// --- CORREÇÃO: Usar *sql.TxOptions ---
+	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("buffer <> ?", "PENDENTE").Order("entry_timestamp asc").Find(&packages).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Package{}).Where("buffer <> ?", "PENDENTE").Count(&count).Error; err != nil {
+			return err
+		}
+		var rtsCount, ehaCount, salCount int64
+		tx.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "RTS").Count(&rtsCount) // Adicionado IS NULL
+		tx.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "EHA").Count(&ehaCount) // Adicionado IS NULL
+		tx.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "SAL").Count(&salCount) // Adicionado IS NULL
+		bufferCounts["RTS"] = rtsCount
+		bufferCounts["EHA"] = ehaCount
+		bufferCounts["SAL"] = salCount
+		return nil
+	}, &sql.TxOptions{ReadOnly: true}) // <-- CORRIGIDO AQUI
+	// --- FIM DA CORREÇÃO ---
+
 	if err != nil {
+		log.Printf("Erro ao buscar estado da fila no DB: %v", err)
+		return []models.Package{}, 0, map[string]int64{"RTS": 0, "EHA": 0, "SAL": 0}
+	}
+
+	return packages, count, bufferCounts
+}
+
+func (h *Hub) BroadcastQueueUpdate() {
+	queue, backlog, bufferCounts := getCurrentQueueState()
+	messageData := QueueUpdateMessage{
+		Type:         "queue_update",
+		Queue:        queue,
+		Backlog:      backlog,
+		BufferCounts: bufferCounts,
+	}
+
+	message, err := json.Marshal(messageData)
+	if err != nil {
+		log.Printf("Erro ao serializar atualização da fila: %v", err)
 		return
 	}
 
-	userInterface, _ := c.Get("user")
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for client := range h.clients {
+		err := client.Conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			log.Printf("Erro ao enviar atualização da fila para %s: %v", client.Username, err)
+		}
+	}
+	log.Println("Atualização da fila enviada para todos os clientes.")
+}
+
+func ServeWs(c *gin.Context) {
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Printf("Falha no upgrade para WebSocket: %v", err)
+		return
+	}
+
+	userInterface, exists := c.Get("user")
+	if !exists {
+		log.Println("Tentativa de conexão WS sem utilizador autenticado.")
+		conn.Close()
+		return
+	}
 	currentUser := userInterface.(models.User)
 
 	client := &Client{
@@ -121,15 +218,47 @@ func ServeWs(c *gin.Context) {
 
 	H.register <- client
 
-	// Esta rotina escuta por mensagens para detetar quando o cliente se desconecta.
 	go func() {
 		defer func() {
 			H.unregister <- client
+			client.Conn.Close()
 		}()
+		client.Conn.SetReadLimit(maxMessageSize)
+		client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		client.Conn.SetPongHandler(func(string) error { client.Conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+
 		for {
-			if _, _, err := client.Conn.ReadMessage(); err != nil {
+			_, _, err := client.Conn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("Erro de leitura WebSocket (cliente %s): %v", client.Username, err)
+				}
 				break
 			}
 		}
 	}()
+
+	go func() {
+		ticker := time.NewTicker(pingPeriod)
+		defer func() {
+			ticker.Stop()
+		}()
+		for {
+			select {
+			case <-ticker.C:
+				client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					log.Printf("Erro ao enviar ping para %s: %v", client.Username, err)
+					return
+				}
+			}
+		}
+	}()
 }
+
+const (
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
+	maxMessageSize = 512
+)

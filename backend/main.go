@@ -9,10 +9,10 @@ import (
 	"fifo-system/backend/models"
 	"fifo-system/backend/services"
 	"fifo-system/backend/websocket"
-	"fmt" // Adicionado para formatação de strings
+	"fmt"
 	"log"
 	"net/http"
-	"os" // Adicionado para ler variáveis de ambiente
+	"os"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -37,13 +37,9 @@ func main() {
 	go websocket.H.Run()
 	r := gin.Default()
 
-	// --- CONFIGURAÇÃO DE CORS DINÂMICA E SEGURA ---
-	// Lê a URL do frontend a partir da variável de ambiente para maior segurança.
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		// Valor padrão para ambiente de desenvolvimento local.
-		// Altere a porta se seu frontend React/Vite rodar em outra.
-		frontendURL = "http://localhost:5173"
+		frontendURL = "http://localhost:5173" // Ou o IP/porta do seu frontend dev
 	}
 
 	corsConfig := cors.Config{
@@ -53,10 +49,8 @@ func main() {
 		AllowCredentials: true,
 	}
 	r.Use(cors.New(corsConfig))
-	// --- FIM DA CONFIGURAÇÃO DE CORS ---
 
 	// --- ROTAS PÚBLICAS ---
-	// Estas rotas NÃO passam pelo middleware de autenticação.
 	r.POST("/login", controllers.Login)
 	r.GET("/public/time", func(c *gin.Context) {
 		serverTime := services.GetBrasiliaTime()
@@ -64,16 +58,19 @@ func main() {
 	})
 	r.GET("/public/fifo-queue", controllers.GetFIFOQueue)
 	r.GET("/public/backlog-count", controllers.GetBacklogCount)
+	// --- ADICIONAR ESTA LINHA ---
+	r.GET("/public/buffer-counts", controllers.GetBufferCounts)
+	// --- FIM DA ADIÇÃO ---
 
 	// --- ROTAS PRIVADAS / PROTEGIDAS ---
-	// Todas as rotas dentro deste grupo "/api" exigirão um token de autenticação válido.
 	api := r.Group("/api")
 	api.Use(middleware.RequireAuth)
 	{
 		api.GET("/ws", websocket.ServeWs)
 		api.PUT("/user/change-password", controllers.ChangePassword)
-		api.GET("/fifo-queue", controllers.GetFIFOQueue)
-		api.GET("/backlog-count", controllers.GetBacklogCount)
+		api.GET("/fifo-queue", controllers.GetFIFOQueue) // Mantém a rota privada também
+		api.GET("/backlog-count", controllers.GetBacklogCount) // Mantém a rota privada também
+		api.GET("/buffer-counts", controllers.GetBufferCounts) // Mantém a rota privada também
 		api.POST("/entry", middleware.RequirePermission("MANAGE_FIFO"), controllers.PackageEntry)
 		api.POST("/exit", middleware.RequirePermission("MANAGE_FIFO"), controllers.PackageExit)
 		api.PUT("/package/move/:id", middleware.RequirePermission("MOVE_PACKAGE"), controllers.MovePackage)
@@ -92,17 +89,16 @@ func main() {
 		}
 	}
 
-	// --- INICIALIZAÇÃO DO SERVIDOR COM PORTA CONFIGURÁVEL ---
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // Porta padrão para ambiente local
+		port = "8080"
 	}
 	address := fmt.Sprintf(":%s", port)
 	log.Printf("Iniciando o servidor em %s, permitindo requisições de %s", address, frontendURL)
 	r.Run(address)
 }
 
-// ... (suas funções seedAdminUser e seedData permanecem inalteradas)
+// ... (seedAdminUser e seedData permanecem inalteradas) ...
 func seedAdminUser() {
 	var userCount int64
 	initializers.DB.Model(&models.User{}).Count(&userCount)
