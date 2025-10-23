@@ -243,14 +243,11 @@ func ServeWs(c *gin.Context) {
 		defer func() {
 			ticker.Stop()
 		}()
-		for {
-			select {
-			case <-ticker.C:
-				client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-				if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-					log.Printf("Erro ao enviar ping para %s: %v", client.Username, err)
-					return
-				}
+		for range ticker.C {
+			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("Erro ao enviar ping para %s: %v", client.Username, err)
+				return
 			}
 		}
 	}()
