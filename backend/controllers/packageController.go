@@ -2,81 +2,139 @@
 package controllers
 
 import (
+	"errors" // Certifique-se de que errors está importado
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
 	"fifo-system/backend/services"
-	"fifo-system/backend/websocket" // <-- Importar websocket
+	"fifo-system/backend/websocket"
 	"fmt"
+	"log" // Adicionado para logar erros no cálculo de tempo
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
+// PackageEntry - Lógica ajustada para perfil opcional e log condicional
 func PackageEntry(c *gin.Context) {
 	var body struct {
 		TrackingID string `json:"trackingId" binding:"required"`
 		Buffer     string `json:"buffer" binding:"required"`
 		Rua        string `json:"rua" binding:"required"`
+		Profile    string `json:"profile"` // Perfil é opcional no bind
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Input inválido. Todos os campos são necessários."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Input inválido. TrackingID, Buffer e Rua são necessários."})
 		return
+	}
+
+	var profileValue int
+	var profileCode string = "N/A" // Padrão
+
+	if body.Buffer != "SAL" {
+		if body.Profile == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Perfil é obrigatório para buffers RTS e EHA."})
+			return
+		}
+		switch body.Profile {
+		case "P":
+			profileValue = 250
+			profileCode = "P"
+		case "M":
+			profileValue = 80
+			profileCode = "M"
+		case "G":
+			profileValue = 10
+			profileCode = "G"
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Perfil inválido. Use 'P', 'M', ou 'G'."})
+			return
+		}
+	} else {
+		profileValue = 0
+		profileCode = "N/A"
 	}
 
 	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
 		var pkg models.Package
-		err := tx.First(&pkg, "tracking_id = ?", body.TrackingID).Error
+		// Usar Unscoped para encontrar mesmo se existir mas estiver "deletado" (soft delete)
+		// Isso evita criar um ID duplicado se ele já existiu antes.
+		err := tx.Unscoped().Where("tracking_id = ?", body.TrackingID).First(&pkg).Error
 
 		currentTime := services.GetBrasiliaTime()
 
-		if err == gorm.ErrRecordNotFound {
+		// Cenário 1: Pacote NUNCA existiu
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			newPackage := models.Package{
 				TrackingID:     body.TrackingID,
 				Buffer:         body.Buffer,
 				Rua:            body.Rua,
 				EntryTimestamp: currentTime,
+				Profile:        profileCode,
+				ProfileValue:   profileValue,
+				// gorm.Model já inclui CreatedAt, UpdatedAt. DeletedAt será NULL.
 			}
 			if err := tx.Create(&newPackage).Error; err != nil {
-				return err
+				return fmt.Errorf("falha ao criar novo pacote: %w", err)
 			}
+			// Cenário 2: Pacote JÁ EXISTE
 		} else if err == nil {
-			if pkg.Buffer != "PENDENTE" {
+			// Sub-cenário 2.1: Pacote existe e está ATIVO na fila (Buffer não PENDENTE e DeletedAt é NULL)
+			if pkg.Buffer != "PENDENTE" && pkg.DeletedAt.Valid == false {
 				return fmt.Errorf("o item %s já se encontra na fila (Buffer: %s, Rua: %s)", pkg.TrackingID, pkg.Buffer, pkg.Rua)
 			}
-			updates := models.Package{
-				Buffer:         body.Buffer,
-				Rua:            body.Rua,
-				EntryTimestamp: currentTime,
+			// Sub-cenário 2.2: Pacote existe mas está como PENDENTE ou foi DELETADO (soft delete)
+			// Podemos "reativá-lo" ou atualizar seu estado de PENDENTE para ativo.
+			updates := map[string]interface{}{
+				"Buffer":         body.Buffer,
+				"Rua":            body.Rua,
+				"EntryTimestamp": currentTime,
+				"Profile":        profileCode,
+				"ProfileValue":   profileValue,
+				"DeletedAt":      nil, // Garante que o soft delete seja removido se existir
 			}
-			if err := tx.Model(&pkg).Updates(updates).Error; err != nil {
-				return err
+			// Usar Unscoped aqui também para garantir que atualizamos mesmo se estiver deletado
+			if err := tx.Unscoped().Model(&pkg).Where("tracking_id = ?", body.TrackingID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("falha ao atualizar pacote existente: %w", err)
 			}
+			// Cenário 3: Outro erro de banco de dados
 		} else {
-			return err
+			return fmt.Errorf("erro ao buscar pacote: %w", err)
 		}
 
 		user, _ := c.Get("user")
-		logDetails := fmt.Sprintf("A Gaiola %s entrou no buffer %s na rua %s", body.TrackingID, body.Buffer, body.Rua)
+		logDetails := ""
+		if profileCode != "N/A" {
+			logDetails = fmt.Sprintf("A Gaiola %s perfil de pacote %s entrou no buffer %s na rua %s", body.TrackingID, profileCode, body.Buffer, body.Rua)
+		} else {
+			logDetails = fmt.Sprintf("A Gaiola %s entrou no buffer %s na rua %s", body.TrackingID, body.Buffer, body.Rua)
+		}
 		if err := services.CreateAuditLog(tx, user.(models.User), "ENTRADA", logDetails); err != nil {
-			return err
+			return err // Erro já vem formatado do service
 		}
 
 		return nil
 	})
 
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		// Ajustar o status code baseado no tipo de erro pode ser útil
+		if strings.Contains(err.Error(), "já se encontra na fila") {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		} else {
+			log.Printf("Erro na transação de PackageEntry: %v", err) // Log detalhado no servidor
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro interno ao processar a entrada."})
+		}
 		return
 	}
 
-	// --- NOTIFICA VIA WEBSOCKET APÓS SUCESSO ---
-	go websocket.H.BroadcastQueueUpdate() // Executa em goroutine para não bloquear a resposta HTTP
-	// --- FIM DA NOTIFICAÇÃO ---
-
+	go websocket.H.BroadcastQueueUpdate()
 	c.JSON(http.StatusOK, gin.H{"message": "Entrada do item registrada com sucesso."})
 }
 
+// PackageExit - Lógica ajustada para log condicional
 func PackageExit(c *gin.Context) {
 	var body struct {
 		TrackingID string `json:"trackingId" binding:"required"`
@@ -88,54 +146,62 @@ func PackageExit(c *gin.Context) {
 
 	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
 		var pkg models.Package
-		if err := tx.First(&pkg, "tracking_id = ?", body.TrackingID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("item não encontrado")
+		// Busca apenas pacotes ATIVOS (não deletados)
+		if err := tx.Where("tracking_id = ?", body.TrackingID).First(&pkg).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("item não encontrado na fila ativa") // Mensagem mais clara
 			}
-			return err
+			return fmt.Errorf("erro ao buscar pacote para saída: %w", err)
 		}
 
+		// Itens PENDENTES não deveriam estar ativos, mas checamos por segurança.
 		if pkg.Buffer == "PENDENTE" {
-			return fmt.Errorf("este item existe, mas ainda não teve entrada na fila e não pode ser removido")
+			return errors.New("este item está como pendente e não pode ser removido pela saída normal")
 		}
 
 		user, _ := c.Get("user")
-		logDetails := fmt.Sprintf("A Gaiola %s foi removida do buffer %s na rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
+		logDetails := ""
+		if pkg.Profile != "N/A" {
+			logDetails = fmt.Sprintf("A Gaiola %s perfil de pacote %s foi removida do buffer %s na rua %s", pkg.TrackingID, pkg.Profile, pkg.Buffer, pkg.Rua)
+		} else {
+			logDetails = fmt.Sprintf("A Gaiola %s foi removida do buffer %s na rua %s", pkg.TrackingID, pkg.Buffer, pkg.Rua)
+		}
 		if err := services.CreateAuditLog(tx, user.(models.User), "SAIDA", logDetails); err != nil {
 			return err
 		}
 
-		// --- ALTERADO: Usar Soft Delete (gorm.Model faz isso por padrão) ---
-		if err := tx.Delete(&pkg).Error; err != nil { // GORM fará UPDATE deleted_at = NOW()
-			return err
+		// Soft Delete padrão do GORM
+		if err := tx.Delete(&pkg).Error; err != nil {
+			return fmt.Errorf("falha ao realizar soft delete: %w", err)
 		}
-		// --- FIM DA ALTERAÇÃO ---
 
 		return nil
 	})
 
 	if err != nil {
-		if err.Error() == "item não encontrado" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Item não encontrado na fila."})
-			return
-		}
-		if err.Error() == "este item existe, mas ainda não teve entrada na fila e não pode ser removido" {
+		if strings.Contains(err.Error(), "item não encontrado") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Item não encontrado na fila ativa."})
+		} else if strings.Contains(err.Error(), "pendente") {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-			return
+		} else {
+			log.Printf("Erro na transação de PackageExit: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro interno ao processar a saída."})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao remover o item."})
 		return
 	}
 
-	// --- NOTIFICA VIA WEBSOCKET APÓS SUCESSO ---
 	go websocket.H.BroadcastQueueUpdate()
-	// --- FIM DA NOTIFICAÇÃO ---
-
 	c.JSON(http.StatusOK, gin.H{"message": "Item removido da fila com sucesso."})
 }
 
+// MovePackage - Lógica ajustada para log condicional
 func MovePackage(c *gin.Context) {
-	packageID := c.Param("id")
+	packageIDStr := c.Param("id") // Renomeado para evitar conflito com variável 'packageID' int
+	packageID, err := strconv.ParseUint(packageIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de pacote inválido."})
+		return
+	}
 
 	var body struct {
 		Rua string `json:"rua" binding:"required"`
@@ -145,33 +211,34 @@ func MovePackage(c *gin.Context) {
 		return
 	}
 
-	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
+	err = initializers.DB.Transaction(func(tx *gorm.DB) error {
 		var pkg models.Package
-		// --- CORREÇÃO: Busca apenas pacotes ativos (não deletados) ---
-		if err := tx.First(&pkg, packageID).Error; err != nil {
-			// Não precisa mais verificar DeletedAt explicitamente se gorm.Model estiver correto
-			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("item não encontrado ou já removido da fila")
+		// Busca pacote ativo pelo ID numérico
+		if err := tx.First(&pkg, uint(packageID)).Error; err != nil { // Convertendo para uint
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("item não encontrado ou já removido da fila")
 			}
-			return err
+			return fmt.Errorf("erro ao buscar pacote para mover: %w", err)
 		}
-        // --- FIM DA CORREÇÃO ---
-
 
 		oldRua := pkg.Rua
 		newRua := body.Rua
 
-		// Verifica se a rua realmente mudou para evitar logs desnecessários
 		if oldRua == newRua {
-			return nil // Nenhuma alteração necessária
+			return nil // Nenhuma alteração
 		}
 
 		if err := tx.Model(&pkg).Update("rua", newRua).Error; err != nil {
-			return err
+			return fmt.Errorf("falha ao atualizar rua: %w", err)
 		}
 
 		user, _ := c.Get("user")
-		logDetails := fmt.Sprintf("A Gaiola %s foi movida da rua %s para %s", pkg.TrackingID, oldRua, newRua)
+		logDetails := ""
+		if pkg.Profile != "N/A" {
+			logDetails = fmt.Sprintf("A Gaiola %s perfil de pacote %s foi movida da rua %s para %s", pkg.TrackingID, pkg.Profile, oldRua, newRua)
+		} else {
+			logDetails = fmt.Sprintf("A Gaiola %s foi movida da rua %s para %s", pkg.TrackingID, oldRua, newRua)
+		}
 		if err := services.CreateAuditLog(tx, user.(models.User), "MOVIMENTACAO", logDetails); err != nil {
 			return err
 		}
@@ -180,40 +247,40 @@ func MovePackage(c *gin.Context) {
 	})
 
 	if err != nil {
-		if err.Error() == "item não encontrado ou já removido da fila" {
+		if strings.Contains(err.Error(), "item não encontrado") {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
+		} else {
+			log.Printf("Erro na transação de MovePackage: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro interno ao mover o item."})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao mover o item."})
 		return
 	}
 
-	// --- NOTIFICA VIA WEBSOCKET APÓS SUCESSO ---
 	go websocket.H.BroadcastQueueUpdate()
-	// --- FIM DA NOTIFICAÇÃO ---
-
 	c.JSON(http.StatusOK, gin.H{"message": "Item movido com sucesso."})
 }
 
-
-// --- Funções GetFIFOQueue, GetBacklogCount e GetBufferCounts no controller podem ser mantidas ---
-// Elas ainda são úteis para a carga inicial ou se o WebSocket falhar.
-// No entanto, GetBufferCounts foi movida para o hub.go para evitar duplicação.
-
+// GetFIFOQueue - Inalterado
 func GetFIFOQueue(c *gin.Context) {
 	var packages []models.Package
-	// Busca apenas pacotes ativos
+	// Busca apenas pacotes ativos (DeletedAt IS NULL é implícito no GORM por padrão)
 	initializers.DB.Where("buffer <> ?", "PENDENTE").Order("entry_timestamp asc").Find(&packages)
 	c.JSON(http.StatusOK, gin.H{"data": packages})
 }
 
+// GetBacklogCount - Inalterado (já excluía SAL na versão anterior)
 func GetBacklogCount(c *gin.Context) {
 	var count int64
-	// Conta apenas pacotes ativos
-	initializers.DB.Model(&models.Package{}).Where("buffer <> ?", "PENDENTE").Count(&count)
-	c.JSON(http.StatusOK, gin.H{"count": count})
+	var value int64
+	db := initializers.DB.Model(&models.Package{}).Where("buffer <> ? AND buffer <> ? AND deleted_at IS NULL", "PENDENTE", "SAL")
+
+	db.Count(&count)
+	db.Select("COALESCE(SUM(profile_value), 0)").Row().Scan(&value)
+
+	c.JSON(http.StatusOK, gin.H{"count": count, "value": value})
 }
 
+// GetAuditLogs - Inalterado
 func GetAuditLogs(c *gin.Context) {
 	username := c.Query("username")
 	fullname := c.Query("fullname")
@@ -234,11 +301,6 @@ func GetAuditLogs(c *gin.Context) {
 	}
 	if startDate != "" && endDate != "" {
 		endDateWithTime := endDate + " 23:59:59"
-		// --- CORREÇÃO: Usar fuso horário correto se necessário ---
-		// Se as datas no frontend não consideram fuso, pode ser preciso ajustar aqui
-		// Ex: loc, _ := time.LoadLocation("America/Sao_Paulo")
-		// startParsed, _ := time.ParseInLocation("2006-01-02", startDate, loc)
-		// endParsed, _ := time.ParseInLocation("2006-01-02 15:04:05", endDateWithTime, loc)
 		query = query.Where("created_at BETWEEN ? AND ?", startDate, endDateWithTime)
 	}
 
@@ -251,20 +313,92 @@ func GetAuditLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": logs})
 }
 
-// GetBufferCounts - Esta função pode ser removida do controller se a lógica
-// estiver apenas no hub.go para evitar duplicação. Se for mantida para
-// alguma API específica, garantir que conta apenas itens ativos.
+// GetBufferCounts - Refatorado para maior clareza e robustez no cálculo do tempo médio
 func GetBufferCounts(c *gin.Context) {
-    var rtsCount, ehaCount, salCount int64
+	type BufferStats struct {
+		Count   int64
+		Value   int64
+		AvgTime float64 // Tempo médio em segundos
+	}
+	stats := make(map[string]BufferStats)
+	now := services.GetBrasiliaTime()
 
-    // Conta separadamente para cada buffer que está ativo na fila
-    initializers.DB.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "RTS").Count(&rtsCount)
-    initializers.DB.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "EHA").Count(&ehaCount)
-    initializers.DB.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "SAL").Count(&salCount)
+	buffersToProcess := []string{"RTS", "EHA", "SAL"}
 
-    c.JSON(http.StatusOK, gin.H{
-        "rts": rtsCount,
-        "eha": ehaCount,
-        "sal": salCount,
-    })
+	for _, bufferName := range buffersToProcess {
+		var count int64
+		var value int64 = 0
+		var totalSeconds float64 = 0.0
+
+		// *** INÍCIO DA CORREÇÃO ***
+		// Query base para o buffer atual
+		baseQuery := initializers.DB.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", bufferName)
+
+		// 1. Obter a contagem (usando a query base)
+		if err := baseQuery.Count(&count).Error; err != nil {
+			log.Printf("Erro ao contar pacotes para buffer %s: %v", bufferName, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao obter contagem do buffer " + bufferName})
+			return
+		}
+
+		// 2. Calcular valor e tempo médio apenas se houver pacotes e não for SAL
+		if count > 0 && bufferName != "SAL" {
+			// Calcular valor (usando a query base)
+			if err := baseQuery.Select("COALESCE(SUM(profile_value), 0)").Row().Scan(&value); err != nil {
+				log.Printf("Erro ao calcular valor para buffer %s: %v", bufferName, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao obter valor do buffer " + bufferName})
+				return
+			}
+
+			// Calcular soma dos tempos de permanência (usando a query base separadamente para Pluck)
+			var entryTimestamps []time.Time
+			// Recria a query APENAS para o Pluck, garantindo que só seleciona o timestamp
+			pluckQuery := initializers.DB.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", bufferName)
+			if err := pluckQuery.Pluck("entry_timestamp", &entryTimestamps).Error; err != nil {
+				log.Printf("Erro ao buscar timestamps para buffer %s: %v", bufferName, err)
+				// Não retorna erro aqui, apenas loga. Tempo médio será 0.
+			} else {
+				for _, entryTime := range entryTimestamps {
+					if !entryTime.IsZero() {
+						duration := now.Sub(entryTime).Seconds()
+						if duration > 0 {
+							totalSeconds += duration
+						}
+					}
+				}
+			}
+		}
+
+		// Calcular tempo médio (evita divisão por zero)
+		var avgTime float64 = 0.0
+		if count > 0 && bufferName != "SAL" {
+			avgTime = totalSeconds / float64(count)
+		}
+
+		// Armazenar estatísticas
+		stats[bufferName] = BufferStats{
+			Count:   count,
+			Value:   value,   // Será 0 para SAL ou se count for 0
+			AvgTime: avgTime, // Será 0 para SAL ou se count for 0
+		}
+	}
+
+	// Montar a resposta
+	c.JSON(http.StatusOK, gin.H{
+		"counts": map[string]int64{
+			"RTS": stats["RTS"].Count,
+			"EHA": stats["EHA"].Count,
+			"SAL": stats["SAL"].Count,
+		},
+		"values": map[string]int64{
+			"RTS": stats["RTS"].Value,
+			"EHA": stats["EHA"].Value,
+			"SAL": stats["SAL"].Value, // Sempre 0
+		},
+		"avgTimes": map[string]float64{
+			"RTS": stats["RTS"].AvgTime,
+			"EHA": stats["EHA"].AvgTime,
+			// "SAL" não é incluído aqui, pois não calculamos
+		},
+	})
 }

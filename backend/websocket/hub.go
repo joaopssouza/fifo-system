@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fifo-system/backend/initializers"
 	"fifo-system/backend/models"
+	"fifo-system/backend/services"
 	"log"
 	"net/http"
 	"sync"
@@ -38,7 +39,12 @@ type QueueUpdateMessage struct {
 	Type         string           `json:"type"`
 	Queue        []models.Package `json:"queue"`
 	Backlog      int64            `json:"backlog"`
-	BufferCounts map[string]int64 `json:"bufferCounts"`
+	BacklogCount int64            `json:"backlogCount"` // Contagem de itens
+	BacklogValue int64            `json:"backlogValue"` // Soma dos valores (P=250, M=80, G=10)
+	BufferCounts map[string]int64 `json:"bufferCounts"` // Contagem por buffer
+	BufferValues map[string]int64 `json:"bufferValues"` // Soma de valores por buffer
+	BufferAvgTimes map[string]float64 `json:"bufferAvgTimes"` // Tempo médio (só RTS e EHA)
+	
 }
 
 var upgrader = websocket.Upgrader{
@@ -80,14 +86,18 @@ func (h *Hub) Run() {
 }
 
 func (h *Hub) sendInitialQueueState(client *Client) {
-	queue, backlog, bufferCounts := getCurrentQueueState()
+	// --- ASSINATURA DA FUNÇÃO MUDOU ---
+	queue, backlogCount, backlogValue, bufferCounts, bufferValues, bufferAvgTimes := getCurrentQueueState()
 	messageData := QueueUpdateMessage{
-		Type:         "queue_update",
-		Queue:        queue,
-		Backlog:      backlog,
-		BufferCounts: bufferCounts,
+		Type:           "queue_update",
+		Queue:          queue,
+		BacklogCount:   backlogCount,
+		BacklogValue:   backlogValue,
+		BufferCounts:   bufferCounts,
+		BufferValues:   bufferValues,
+		BufferAvgTimes: bufferAvgTimes, // NOVO
 	}
-
+	// ... (resto da função inalterado) ...
 	message, err := json.Marshal(messageData)
 	if err != nil {
 		log.Printf("Erro ao serializar estado inicial da fila: %v", err)
@@ -134,45 +144,92 @@ func (h *Hub) broadcastOnlineUsers() {
 	}
 }
 
-func getCurrentQueueState() ([]models.Package, int64, map[string]int64) {
+func getCurrentQueueState() ([]models.Package, int64, int64, map[string]int64, map[string]int64, map[string]float64) {
 	var packages []models.Package
-	var count int64
+	var backlogCount int64 = 0
+	var backlogValue int64 = 0
 	bufferCounts := make(map[string]int64)
+	bufferValues := make(map[string]int64)
+	bufferTotalSeconds := make(map[string]float64) // Para calcular a média
+	bufferAvgTimes := make(map[string]float64)
+	now := services.GetBrasiliaTime()
 
-	// --- CORREÇÃO: Usar *sql.TxOptions ---
 	err := initializers.DB.Transaction(func(tx *gorm.DB) error {
+		// Busca todos os pacotes ativos
 		if err := tx.Where("buffer <> ?", "PENDENTE").Order("entry_timestamp asc").Find(&packages).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&models.Package{}).Where("buffer <> ?", "PENDENTE").Count(&count).Error; err != nil {
-			return err
+
+		// Inicializa mapas
+		bufferCounts["RTS"], bufferCounts["EHA"], bufferCounts["SAL"] = 0, 0, 0
+		bufferValues["RTS"], bufferValues["EHA"], bufferValues["SAL"] = 0, 0, 0
+		bufferTotalSeconds["RTS"], bufferTotalSeconds["EHA"] = 0.0, 0.0 // SAL não precisa
+		bufferAvgTimes["RTS"], bufferAvgTimes["EHA"] = 0.0, 0.0         // SAL não terá
+
+		for _, pkg := range packages {
+			// Calcula tempo de permanência se o timestamp não for zero
+			var durationSeconds float64 = 0
+			if !pkg.EntryTimestamp.IsZero() {
+				durationSeconds = now.Sub(pkg.EntryTimestamp).Seconds()
+			}
+
+			// Conta e Soma para BACKLOG (Excluindo SAL)
+			if pkg.Buffer != "SAL" {
+				backlogCount++
+				backlogValue += int64(pkg.ProfileValue)
+			}
+
+			// Conta, Soma e Tempo Total por BUFFER
+			switch pkg.Buffer {
+			case "RTS":
+				bufferCounts["RTS"]++
+				bufferValues["RTS"] += int64(pkg.ProfileValue)
+				bufferTotalSeconds["RTS"] += durationSeconds
+			case "EHA":
+				bufferCounts["EHA"]++
+				bufferValues["EHA"] += int64(pkg.ProfileValue)
+				bufferTotalSeconds["EHA"] += durationSeconds
+			case "SAL":
+				bufferCounts["SAL"]++
+				// bufferValues["SAL"] permanece 0
+				// bufferTotalSeconds["SAL"] não é calculado
+			}
 		}
-		var rtsCount, ehaCount, salCount int64
-		tx.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "RTS").Count(&rtsCount) // Adicionado IS NULL
-		tx.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "EHA").Count(&ehaCount) // Adicionado IS NULL
-		tx.Model(&models.Package{}).Where("buffer = ? AND deleted_at IS NULL", "SAL").Count(&salCount) // Adicionado IS NULL
-		bufferCounts["RTS"] = rtsCount
-		bufferCounts["EHA"] = ehaCount
-		bufferCounts["SAL"] = salCount
+
+		// Calcula Tempo Médio
+		if bufferCounts["RTS"] > 0 {
+			bufferAvgTimes["RTS"] = bufferTotalSeconds["RTS"] / float64(bufferCounts["RTS"])
+		}
+		if bufferCounts["EHA"] > 0 {
+			bufferAvgTimes["EHA"] = bufferTotalSeconds["EHA"] / float64(bufferCounts["EHA"])
+		}
+
 		return nil
-	}, &sql.TxOptions{ReadOnly: true}) // <-- CORRIGIDO AQUI
-	// --- FIM DA CORREÇÃO ---
+	}, &sql.TxOptions{ReadOnly: true})
 
 	if err != nil {
 		log.Printf("Erro ao buscar estado da fila no DB: %v", err)
-		return []models.Package{}, 0, map[string]int64{"RTS": 0, "EHA": 0, "SAL": 0}
+		// Retorna zero para todos os valores em caso de erro
+		emptyCounts := map[string]int64{"RTS": 0, "EHA": 0, "SAL": 0}
+		emptyValues := map[string]int64{"RTS": 0, "EHA": 0, "SAL": 0}
+		emptyAvgTimes := map[string]float64{"RTS": 0.0, "EHA": 0.0}
+		return []models.Package{}, 0, 0, emptyCounts, emptyValues, emptyAvgTimes
 	}
 
-	return packages, count, bufferCounts
+	return packages, backlogCount, backlogValue, bufferCounts, bufferValues, bufferAvgTimes
 }
 
 func (h *Hub) BroadcastQueueUpdate() {
-	queue, backlog, bufferCounts := getCurrentQueueState()
+	// --- ASSINATURA DA FUNÇÃO MUDOU ---
+	queue, backlogCount, backlogValue, bufferCounts, bufferValues, bufferAvgTimes := getCurrentQueueState()
 	messageData := QueueUpdateMessage{
-		Type:         "queue_update",
-		Queue:        queue,
-		Backlog:      backlog,
-		BufferCounts: bufferCounts,
+		Type:           "queue_update",
+		Queue:          queue,
+		BacklogCount:   backlogCount,
+		BacklogValue:   backlogValue,
+		BufferCounts:   bufferCounts,
+		BufferValues:   bufferValues,
+		BufferAvgTimes: bufferAvgTimes, // NOVO
 	}
 
 	message, err := json.Marshal(messageData)

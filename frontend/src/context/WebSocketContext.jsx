@@ -9,14 +9,18 @@ export const WebSocketProvider = ({ children }) => {
     const [onlineUsers, setOnlineUsers] = useState([]);
     const [wsQueue, setWsQueue] = useState([]);
     const [wsBacklog, setWsBacklog] = useState(0);
+    const [wsBacklogValue, setWsBacklogValue] = useState(0);
     const [wsBufferCounts, setWsBufferCounts] = useState({ RTS: 0, EHA: 0, SAL: 0 });
+    const [wsBufferValues, setWsBufferValues] = useState({ RTS: 0, EHA: 0, SAL: 0 });
+    // --- NOVOS ESTADOS PARA TEMPO MÉDIO ---
+    const [wsBufferAvgTimes, setWsBufferAvgTimes] = useState({ RTS: 0.0, EHA: 0.0 });
     const [isConnected, setIsConnected] = useState(false);
 
     useEffect(() => {
         let ws = null;
 
-        // Se houver token (utilizador autenticado)
         if (token) {
+            // ... (conexão ws) ...
             const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
             const wsURL = baseURL.replace(/^http/, 'ws');
             const finalWsUrl = `${wsURL}/api/ws?token=${token}`;
@@ -40,8 +44,12 @@ export const WebSocketProvider = ({ children }) => {
                         }
                     } else if (message.type === 'queue_update') {
                         setWsQueue(message.queue || []);
-                        setWsBacklog(message.backlog || 0);
+                        setWsBacklog(message.backlogCount || 0);
+                        setWsBacklogValue(message.backlogValue || 0);
                         setWsBufferCounts(message.bufferCounts || { RTS: 0, EHA: 0, SAL: 0 });
+                        setWsBufferValues(message.bufferValues || { RTS: 0, EHA: 0, SAL: 0 });
+                        // --- ARMAZENA TEMPO MÉDIO ---
+                        setWsBufferAvgTimes(message.bufferAvgTimes || { RTS: 0.0, EHA: 0.0 });
                     }
                 } catch (e) {
                     console.error("Erro ao processar mensagem do WebSocket:", e);
@@ -51,55 +59,63 @@ export const WebSocketProvider = ({ children }) => {
             ws.onclose = (event) => {
                 console.log("Conexão WebSocket Fechada (Autenticado)", event.reason);
                 setIsConnected(false);
-                // Limpa os dados ao desconectar
                 setOnlineUsers([]);
                 setWsQueue([]);
                 setWsBacklog(0);
+                setWsBacklogValue(0);
                 setWsBufferCounts({ RTS: 0, EHA: 0, SAL: 0 });
+                setWsBufferValues({ RTS: 0, EHA: 0, SAL: 0 });
+                // --- RESET TEMPO MÉDIO ---
+                setWsBufferAvgTimes({ RTS: 0.0, EHA: 0.0 });
             };
             ws.onerror = (error) => {
                 console.error("Erro no WebSocket (Autenticado):", error);
                 setIsConnected(false);
             };
 
-        // --- LÓGICA PARA CONVIDADO ---
         } else if (isGuest) {
-            console.log("Modo Convidado: WebSocket não será conectado. Simulando estado 'conectado'.");
-            // Limpa estados que dependem do WS
+            console.log("Modo Convidado: WebSocket não será conectado.");
             setOnlineUsers([]);
             setWsQueue([]);
             setWsBacklog(0);
+            setWsBacklogValue(0);
             setWsBufferCounts({ RTS: 0, EHA: 0, SAL: 0 });
-            // Define como "conectado" para que o Dashboard não mostre a mensagem
-            // e use os dados da API inicial.
-            setIsConnected(false); // <<-- SIMULA CONEXÃO PARA CONVIDADO
+            setWsBufferValues({ RTS: 0, EHA: 0, SAL: 0 });
+             // --- RESET TEMPO MÉDIO ---
+            setWsBufferAvgTimes({ RTS: 0.0, EHA: 0.0 });
+            setIsConnected(false);
 
-        // Se não for autenticado nem convidado (ex: na página de login)
         } else {
             setIsConnected(false);
             setOnlineUsers([]);
             setWsQueue([]);
             setWsBacklog(0);
+            setWsBacklogValue(0);
             setWsBufferCounts({ RTS: 0, EHA: 0, SAL: 0 });
+            setWsBufferValues({ RTS: 0, EHA: 0, SAL: 0 });
+             // --- RESET TEMPO MÉDIO ---
+            setWsBufferAvgTimes({ RTS: 0.0, EHA: 0.0 });
         }
 
-        // Função de limpeza
         return () => {
             if (ws) {
                 console.log("Fechando conexão WebSocket...");
                 ws.close();
-                setIsConnected(false); // Garante reset ao sair
+                setIsConnected(false);
             }
         };
-    }, [token, isGuest, user]); // Depende de token, isGuest e user
+    }, [token, isGuest, user]);
 
     const value = useMemo(() => ({
         onlineUsers,
         wsQueue,
         wsBacklog,
+        wsBacklogValue,
         wsBufferCounts,
+        wsBufferValues,
+        wsBufferAvgTimes, // <-- EXPOSTO
         isConnected
-    }), [onlineUsers, wsQueue, wsBacklog, wsBufferCounts, isConnected]);
+    }), [onlineUsers, wsQueue, wsBacklog, wsBacklogValue, wsBufferCounts, wsBufferValues, wsBufferAvgTimes, isConnected]); // <-- ATUALIZADO
 
     return (
         <WebSocketContext.Provider value={value}>
